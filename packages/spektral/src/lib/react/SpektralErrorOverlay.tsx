@@ -41,7 +41,6 @@ function ChevronDownIcon() {
 
 export function SpektralErrorOverlay({ report, onDismiss }: SpektralErrorOverlayProps) {
 	const model = createSpektralErrorOverlayModel(report);
-	const detailsSummary = report.source ? 'Additional diagnostics' : 'Technical details';
 	const componentId = useId();
 	const titleId = `${componentId}-title`;
 	const descriptionId = `${componentId}-description`;
@@ -202,22 +201,13 @@ export function SpektralErrorOverlay({ report, onDismiss }: SpektralErrorOverlay
 						) : null}
 
 						<div className="spektral-error-sections">
-							{report.details.length > 0 ? (
-								<details className="spektral-error-details" open>
-									<summary>
-										<ChevronDownIcon />
-										<span>{detailsSummary}</span>
-									</summary>
-									<pre>{report.details.join('\n')}</pre>
-								</details>
-							) : null}
-							{report.stack.length > 0 ? (
+							{model.stackText.length > 0 ? (
 								<details className="spektral-error-details">
 									<summary>
 										<ChevronDownIcon />
 										<span>Stack trace</span>
 									</summary>
-									<pre>{report.stack.join('\n')}</pre>
+									<pre>{model.stackText}</pre>
 								</details>
 							) : null}
 							{report.context ? (

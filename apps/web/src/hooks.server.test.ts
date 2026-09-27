@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveLegacyRedirect } from './hooks.server';
 
 describe('legacy Spektral redirects', () => {
-	it.each(['motion-gpu.dev', 'www.motion-gpu.dev'])(
+	it.each(['motion-gpu.dev', 'www.motion-gpu.dev', 'www.spektral.madebyhex.com'])(
 		'redirects %s to the canonical site and preserves the request path',
 		(host) => {
 			const target = resolveLegacyRedirect(

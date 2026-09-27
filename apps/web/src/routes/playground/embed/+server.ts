@@ -4,6 +4,8 @@ import {
 } from '$lib/playground-engine/preview/protocol';
 import previewDefaultStyles from '$lib/playground-engine/preview/runtime-shell/styles.css?raw';
 import { env } from '$env/dynamic/private';
+import { dev } from '$app/environment';
+import { isLocalPreviewParent } from '$lib/playground-engine/preview/origin';
 import type { RequestHandler } from './$types';
 
 export const prerender = false;
@@ -31,6 +33,7 @@ function toSafeOrigin(value: string | null): string {
  */
 function isAllowedParentOrigin(parentOrigin: string, endpointOrigin: string): boolean {
 	if (parentOrigin === endpointOrigin) return true;
+	if (dev && isLocalPreviewParent(parentOrigin, endpointOrigin)) return true;
 
 	return (env.PLAYGROUND_PREVIEW_PARENT_ORIGINS ?? '')
 		.split(',')
@@ -94,6 +97,14 @@ const buildEmbedHtml = ({
 				if (self.origin !== 'null') {
 					throw new Error('Playground preview requires an opaque origin.');
 				}
+
+				// Rebuilt demos and error dialogs must not take focus from the editor.
+				// Clicking or tabbing into the preview still allows its normal focus management.
+				const focusElement = HTMLElement.prototype.focus;
+				HTMLElement.prototype.focus = function (options) {
+					if (!document.hasFocus()) return;
+					focusElement.call(this, options);
+				};
 
 				const CHANNEL = ${JSON.stringify(PLAYGROUND_PREVIEW_CHANNEL)};
 				const SESSION_ID = ${JSON.stringify(sessionId)};
@@ -274,6 +285,7 @@ export const GET: RequestHandler = async ({ url }) => {
 				'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()',
 			'Referrer-Policy': 'no-referrer',
 			'Cross-Origin-Resource-Policy': 'cross-origin',
+			'Origin-Agent-Cluster': '?1',
 			'X-Content-Type-Options': 'nosniff'
 		}
 	});

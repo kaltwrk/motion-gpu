@@ -1,13 +1,17 @@
 import type { Handle } from '@sveltejs/kit';
 
-const LEGACY_SITE_HOSTS = new Set(['motion-gpu.dev', 'www.motion-gpu.dev']);
+const SITE_REDIRECT_HOSTS = new Set([
+	'motion-gpu.dev',
+	'www.motion-gpu.dev',
+	'www.spektral.madebyhex.com'
+]);
 const LEGACY_PREVIEW_HOST = 'preview.motion-gpu.dev';
 const SPEKTRAL_SITE_HOST = 'spektral.madebyhex.com';
 const SPEKTRAL_PREVIEW_HOST = 'preview.spektral.madebyhex.com';
 
 export function resolveLegacyRedirect(url: URL): URL | null {
 	let targetHost: string | null = null;
-	if (LEGACY_SITE_HOSTS.has(url.hostname)) {
+	if (SITE_REDIRECT_HOSTS.has(url.hostname)) {
 		targetHost = SPEKTRAL_SITE_HOST;
 	} else if (url.hostname === LEGACY_PREVIEW_HOST) {
 		targetHost = SPEKTRAL_PREVIEW_HOST;

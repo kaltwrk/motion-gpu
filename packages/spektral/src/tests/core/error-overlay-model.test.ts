@@ -79,6 +79,27 @@ describe('createSpektralErrorOverlayModel', () => {
 		);
 	});
 
+	it('omits repeated diagnostics from the displayed stack without changing the report', () => {
+		const errorReport = report({
+			message: 'first error',
+			details: ['second error\ncontinued diagnostic'],
+			rawMessage: 'WGSL compilation failed:\nfirst error\nsecond error\ncontinued diagnostic',
+			stack: [
+				'Error: WGSL compilation failed:',
+				'first error',
+				'  second error',
+				'continued diagnostic',
+				'at render (Renderer.ts:42:7)'
+			]
+		});
+		expect(createSpektralErrorOverlayModel(errorReport).stackText).toBe(
+			'Error: WGSL compilation failed:\nat render (Renderer.ts:42:7)'
+		);
+		expect(errorReport.stack).toHaveLength(5);
+		expect(errorReport.details).toEqual(['second error\ncontinued diagnostic']);
+		expect(createSpektralErrorOverlayModel(report()).stackText).toBe('');
+	});
+
 	it('handles absent, blank, invalid and empty runtime values', () => {
 		expect(createSpektralErrorOverlayModel(report()).runtimeContextText).toBe('');
 		expect(
@@ -110,26 +131,24 @@ describe('createSpektralErrorOverlayModel', () => {
 		);
 		expect(model.metadata).toEqual([
 			{ label: 'Pass', value: 'Bloom composite (ShaderPass)' },
-			{ label: 'Stage', value: 'fragment' },
-			{ label: 'Formats', value: 'rgba16float → rgba8unorm' },
-			{ label: 'Source', value: 'user' },
-			{ label: 'Location', value: '12:7' }
+			{ label: 'Formats', value: 'rgba16float → rgba8unorm' }
 		]);
 		expect(Object.isFrozen(model)).toBe(true);
 		expect(Object.isFrozen(model.metadata)).toBe(true);
 		expect(Object.isFrozen(model.metadata[0])).toBe(true);
 	});
 
-	it('labels wrapper diagnostics as library-owned source', () => {
+	it('omits the metadata row when no pass or formats are available', () => {
 		const model = createSpektralErrorOverlayModel(
 			report({
 				shader: {
-					passKind: 'ShaderPass',
 					stage: 'fragment',
-					sourceKind: 'wrapper'
+					sourceKind: 'wrapper',
+					line: 12,
+					column: 7
 				}
 			})
 		);
-		expect(model.metadata).toContainEqual({ label: 'Source', value: 'library wrapper' });
+		expect(model.metadata).toEqual([]);
 	});
 });

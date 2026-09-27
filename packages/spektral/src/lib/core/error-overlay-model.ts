@@ -2,6 +2,7 @@ import type { SpektralErrorContext, SpektralErrorReport } from './error-report.j
 
 export interface SpektralErrorOverlayModel {
 	readonly displayMessage: string;
+	readonly stackText: string;
 	readonly runtimeContextText: string;
 	readonly metadata: readonly SpektralErrorOverlayMetadata[];
 }
@@ -40,6 +41,17 @@ function indentBlock(value: string, spaces = 2): string {
 		.split('\n')
 		.map((line) => `${prefix}${line}`)
 		.join('\n');
+}
+
+function formatStack(report: SpektralErrorReport): string {
+	// Error.stack can repeat every diagnostic from the multiline error message.
+	// Keep those messages out of the overlay, including its collapsed stack trace.
+	const messageLines = new Set(
+		[report.rawMessage, report.message, ...report.details]
+			.flatMap((message) => message.split('\n'))
+			.map((line) => line.trim())
+	);
+	return report.stack.filter((line) => !messageLines.has(line.trim())).join('\n');
 }
 
 function formatMaterialSignature(value: string): string {
@@ -98,21 +110,10 @@ function buildMetadata(report: SpektralErrorReport): readonly SpektralErrorOverl
 			value: shader.passLabel ? `${shader.passLabel} (${shader.passKind})` : shader.passKind
 		});
 	}
-	metadata.push({ label: 'Stage', value: shader.stage });
 	if (shader.inputFormat && shader.outputFormat) {
 		metadata.push({
 			label: 'Formats',
 			value: `${shader.inputFormat} → ${shader.outputFormat}`
-		});
-	}
-	metadata.push({
-		label: 'Source',
-		value: shader.sourceKind === 'wrapper' ? 'library wrapper' : 'user'
-	});
-	if (shader.line !== undefined) {
-		metadata.push({
-			label: 'Location',
-			value: `${shader.line}${shader.column !== undefined ? `:${shader.column}` : ''}`
 		});
 	}
 	return Object.freeze(metadata.map((entry) => Object.freeze(entry)));
@@ -124,6 +125,7 @@ export function createSpektralErrorOverlayModel(
 ): SpektralErrorOverlayModel {
 	return Object.freeze({
 		displayMessage: resolveDisplayMessage(report),
+		stackText: formatStack(report),
 		runtimeContextText: formatRuntimeContext(report.context),
 		metadata: buildMetadata(report)
 	});

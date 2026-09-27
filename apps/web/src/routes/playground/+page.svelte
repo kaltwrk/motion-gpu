@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { replaceState } from '$app/navigation';
+	import { page } from '$app/state';
+	import Button from '$lib/components/ui/Button.svelte';
 	import { frameworkStore, type Framework } from '$lib/stores/framework.svelte';
 
 	const getPlaygroundParamsFromLocation = () => {
@@ -16,10 +19,11 @@
 		const nextUrl = new URL(window.location.href);
 		nextUrl.searchParams.set('demo', controller.activeDemoId);
 		nextUrl.searchParams.set('framework', controller.activeFramework);
-		window.history.replaceState(window.history.state, '', nextUrl);
+		replaceState(nextUrl, page.state);
 	};
 
 	let PlaygroundView = $state<(typeof import('./PlaygroundView.svelte'))['default'] | null>(null);
+	let failedToLoad = $state(false);
 	let controller = $state<ReturnType<
 		(typeof import('./playground-controller.svelte'))['createPlaygroundController']
 	> | null>(null);
@@ -78,7 +82,11 @@
 			};
 			window.addEventListener('popstate', onPopState);
 			removePopState = () => window.removeEventListener('popstate', onPopState);
-		})();
+		})().catch((error: unknown) => {
+			if (!mounted) return;
+			failedToLoad = true;
+			console.error('Failed to load the playground.', error);
+		});
 
 		return () => {
 			mounted = false;
@@ -88,7 +96,15 @@
 	});
 </script>
 
-{#if PlaygroundView && controller}
+{#if failedToLoad}
+	<main class="flex min-h-dvh flex-col items-center justify-center gap-4 p-6 text-center">
+		<div role="alert" class="space-y-2">
+			<h1 class="text-lg font-medium">The playground could not load</h1>
+			<p class="text-sm text-foreground-muted">Reload the page to try again.</p>
+		</div>
+		<Button onclick={() => window.location.reload()}>Reload playground</Button>
+	</main>
+{:else if PlaygroundView && controller}
 	<PlaygroundView
 		{controller}
 		onSelectDemo={selectDemo}
@@ -96,4 +112,8 @@
 		onEditorHostChange={handleEditorHostChange}
 		onPreviewFrameChange={handlePreviewFrameChange}
 	/>
+{:else}
+	<main class="flex min-h-dvh items-center justify-center p-6">
+		<p role="status" class="text-sm text-foreground-muted">Loading playground…</p>
+	</main>
 {/if}

@@ -4,6 +4,10 @@ import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
+	server: {
+		// localhost and 127.0.0.1 must both reach the local preview server.
+		host: '127.0.0.1'
+	},
 	optimizeDeps: {
 		exclude: ['@rollup/browser']
 	},

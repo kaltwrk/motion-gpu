@@ -18,6 +18,9 @@ import {
 import { tags as t } from '@lezer/highlight';
 import { svelte as svelteLanguage } from '@replit/codemirror-lang-svelte';
 import { env as publicEnv } from '$env/dynamic/public';
+import { dev } from '$app/environment';
+import { synchronizedEditorScroll } from '$lib/playground-engine/editor/scroll';
+import { resolvePreviewOrigin } from '$lib/playground-engine/preview/origin';
 import {
 	getPlaygroundDemoById,
 	getPlaygroundDemoVariant,
@@ -56,16 +59,6 @@ const createPreviewSessionId = () =>
 	typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
 		? crypto.randomUUID()
 		: `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-const resolvePreviewOrigin = (configuredOrigin: string | null | undefined) => {
-	if (typeof window === 'undefined') return '';
-	if (!configuredOrigin) return window.location.origin;
-	try {
-		return new URL(configuredOrigin).origin;
-	} catch {
-		return window.location.origin;
-	}
-};
 
 const editorFontStack =
 	'"Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
@@ -150,8 +143,8 @@ const createEditorTheme = (mode: EditorThemeMode) =>
 	EditorView.theme(
 		{
 			'&': {
-				height: 'auto',
-				minHeight: '100%',
+				height: '100%',
+				minHeight: '0',
 				fontSize: '13px',
 				backgroundColor: 'var(--playground-editor-bg)',
 				color: 'var(--playground-editor-fg)'
@@ -159,12 +152,12 @@ const createEditorTheme = (mode: EditorThemeMode) =>
 			'.cm-scroller': {
 				fontFamily: editorFontStack,
 				lineHeight: '1.55',
-				overflow: 'visible'
+				overflow: 'auto'
 			},
 			'.cm-content': {
 				padding: '10px 0 12px',
 				width: 'max-content',
-				minWidth: '100%'
+				minWidth: '0'
 			},
 			'.cm-line': {
 				padding: '0 12px 0 14px'
@@ -229,6 +222,7 @@ const languageExtensionForPath = (filePath: string): Extension => {
 };
 
 const playgroundEditorBaseExtensions: Extension[] = [
+	synchronizedEditorScroll,
 	lineNumbers(),
 	highlightActiveLineGutter(),
 	highlightSpecialChars(),
@@ -388,7 +382,7 @@ export const createPlaygroundController = (
 
 		previewSessionId = createPreviewSessionId();
 		const configuredOrigin = publicEnv.PUBLIC_PLAYGROUND_PREVIEW_ORIGIN?.trim() ?? '';
-		const origin = resolvePreviewOrigin(configuredOrigin);
+		const origin = resolvePreviewOrigin(window.location.origin, configuredOrigin, dev);
 		const query = [
 			`session=${encodeURIComponent(previewSessionId)}`,
 			`parent_origin=${encodeURIComponent(window.location.origin)}`,

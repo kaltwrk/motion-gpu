@@ -114,6 +114,36 @@ describe('error report', () => {
 		expect(report.source?.snippet.some((line) => line.highlight && line.number === 3)).toBe(true);
 	});
 
+	it('keeps the message, source and shader metadata on the same first diagnostic', () => {
+		const error = attachShaderCompilationDiagnostics(new Error('WGSL compilation failed'), {
+			kind: 'shader-compilation',
+			diagnostics: [
+				{
+					generatedLine: 0,
+					message: 'first error without a source location',
+					sourceLocation: null
+				},
+				{
+					generatedLine: 112,
+					message: 'second error with a source location',
+					linePos: 5,
+					sourceLocation: { kind: 'fragment', line: 3 }
+				}
+			],
+			fragmentSource: 'fn frag(uv: vec2f) -> vec4f {}',
+			includeSources: {},
+			materialSource: null
+		});
+
+		const report = toSpektralErrorReport(error, 'render');
+		expect(report.message).toBe('first error without a source location');
+		expect(report.source).toBeNull();
+		expect(report.shader).toEqual({ stage: 'fragment', sourceKind: 'wrapper' });
+		expect(report.details).toEqual([
+			'[fragment line 3 | generated WGSL line 112] second error with a source location'
+		]);
+	});
+
 	it('builds include source snippet when diagnostics point to include chunk', () => {
 		const error = attachShaderCompilationDiagnostics(
 			new Error('WGSL compilation failed:\nunknown function call'),

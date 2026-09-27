@@ -182,22 +182,13 @@
 				{/if}
 
 				<div class="spektral-error-sections">
-					{#if report.details.length > 0}
-						<details class="spektral-error-details" open>
-							<summary>
-								{@render chevronDownIcon()}
-								<span>{report.source ? 'Additional diagnostics' : 'Technical details'}</span>
-							</summary>
-							<pre>{report.details.join('\n')}</pre>
-						</details>
-					{/if}
-					{#if report.stack.length > 0}
+					{#if model.stackText.length > 0}
 						<details class="spektral-error-details">
 							<summary>
 								{@render chevronDownIcon()}
 								<span>Stack trace</span>
 							</summary>
-							<pre>{report.stack.join('\n')}</pre>
+							<pre>{model.stackText}</pre>
 						</details>
 					{/if}
 					{#if report.context}

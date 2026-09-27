@@ -10,7 +10,13 @@ pnpm install
 pnpm --dir packages/spektral exec playwright install chromium
 ```
 
-`pnpm install` configures the tracked pre-commit hook for this checkout. The hook runs the full local gate:
+`pnpm install` configures the tracked pre-commit hook for this checkout. The hook checks the generated changelog, formatting, and lint rules:
+
+```sh
+pnpm run precommit
+```
+
+Run the full local gate before opening a pull request:
 
 ```sh
 pnpm run ci
@@ -20,7 +26,18 @@ That command checks the generated changelog, formatting, lint rules, builds, pac
 
 The hook is a local safety net and can be bypassed. Pull requests use the deterministic `quality` check as the authoritative code-quality gate, together with dependency review and CodeQL for JavaScript and TypeScript.
 
-WebGPU end-to-end tests require a real, compatible graphics environment. Standard GitHub-hosted runners do not provide one reliably, so E2E remains part of the full local pre-commit gate rather than a required GitHub check. Run `pnpm run ci:e2e` explicitly before opening a pull request if the hook was skipped.
+WebGPU end-to-end tests require a real, compatible graphics environment. Standard GitHub-hosted runners do not provide one reliably, so E2E runs locally through `pnpm run ci:e2e`, which is included in `pnpm run ci`.
+
+## Releases
+
+1. Bump `packages/spektral/package.json`, move the `Unreleased` notes into a dated version section in `CHANGELOG.md`, update its comparison links, and run `pnpm run docs:changelog`.
+2. Run `pnpm run audit:dependencies`, `pnpm run ci`, and the local hardware release gates described below.
+3. Open a pull request to `master` and merge it through the repository's review and required-check rules.
+4. Publish a stable GitHub Release with a `vX.Y.Z` tag pointing to the merged commit. The tag version must match the package manifest.
+
+The `release` workflow starts when the GitHub Release is published; pushing a tag alone does not publish the package. It verifies the tag's ancestry on `master` and that the npm version is unused, then audits dependencies and runs `ci:quality`. It packs one tarball, tests it with current and minimum peer versions, and publishes that same artifact through npm trusted publishing in the `npm-production` environment. Registry integrity, the `latest` tag, provenance, signatures, and installed-package consumer tests are checked afterward.
+
+The `release:candidate:*` commands are specific to the historical 0.17.0 candidate process and are not called by the release workflow.
 
 ## Performance benchmarks
 

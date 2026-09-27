@@ -24,10 +24,10 @@
 <section
 	class="inset-shadow flex min-h-0 flex-col overflow-hidden rounded-md bg-background-muted p-px dark:bg-background"
 >
-	<div class="h-8 border-b border-(--guide-ink)">
-		<ScrollArea mode="horizontal" class="h-full" viewportClass="h-full">
+	<div class="min-h-8 min-w-0 shrink-0 border-b border-(--guide-ink)">
+		<div class="overflow-x-auto overflow-y-hidden">
 			<div
-				class="flex items-stretch [&>div:first-child]:rounded-tl-md [&>div:first-child]:border-r [&>div:first-child>button]:rounded-tl-md [&>div:last-child]:rounded-tr-md [&>div:last-child>button]:rounded-tr-md [&>div:not(:first-child)]:border-x"
+				class="flex w-max min-w-full items-stretch [&>div:first-child]:rounded-tl-md [&>div:first-child]:border-r [&>div:first-child>button]:rounded-tl-md [&>div:last-child]:rounded-tr-md [&>div:last-child>button]:rounded-tr-md [&>div:not(:first-child)]:border-x"
 			>
 				{#each controller.openFilePaths as filePath (filePath)}
 					<div
@@ -40,6 +40,7 @@
 						<button
 							type="button"
 							onclick={() => controller.switchToFile(filePath)}
+							aria-pressed={controller.activeFilePath === filePath}
 							class={`focus-ring relative px-2.5 py-2 text-left font-mono text-[11px] font-normal transition-[color,box-shadow] duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset motion-reduce:transition-none sm:px-3 sm:text-xs ${
 								controller.activeFilePath === filePath
 									? 'text-foreground'
@@ -51,20 +52,14 @@
 					</div>
 				{/each}
 			</div>
-		</ScrollArea>
+		</div>
 	</div>
 
-	<ScrollArea
-		mode="both"
-		class="min-h-0 flex-1 bg-background dark:bg-background-inset"
-		viewportClass="h-full w-full"
-	>
-		<div
-			use:registerEditorHost
-			class="min-h-full min-w-full"
-			aria-label="Svelte component editor"
-		></div>
-	</ScrollArea>
+	<div
+		use:registerEditorHost
+		class="min-h-0 min-w-0 flex-1 overflow-hidden bg-background dark:bg-background-inset"
+		aria-label="Code editor"
+	></div>
 
 	{#if controller.syncError}
 		<p

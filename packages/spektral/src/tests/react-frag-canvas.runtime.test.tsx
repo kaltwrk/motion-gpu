@@ -1,7 +1,10 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEffect, useRef } from 'react';
-import { attachShaderCompilationDiagnostics } from '../lib/core/error-diagnostics.js';
+import {
+	attachShaderCompilationDiagnostics,
+	getShaderCompilationDiagnostics
+} from '../lib/core/error-diagnostics.js';
 import type { SpektralErrorReport } from '../lib/core/error-report.js';
 import { defineMaterial, type FragMaterial } from '../lib/core/material.js';
 import type { RenderMode } from '../lib/core/types.js';
@@ -550,9 +553,9 @@ describe('React FragCanvas runtime', () => {
 		expect(renderer.render).toHaveBeenCalledTimes(1);
 	});
 
-	it('renders shader diagnostics source, details and stack in overlay', async () => {
+	it('shows one shader error at a time and advances after a material edit', async () => {
 		const diagnosticsError = attachShaderCompilationDiagnostics(
-			new Error('WGSL compilation failed:\nmissing return'),
+			new Error('WGSL compilation failed:\nmissing return\nexpected ;'),
 			{
 				kind: 'shader-compilation',
 				diagnostics: [
@@ -590,7 +593,7 @@ describe('React FragCanvas runtime', () => {
 			}
 		);
 		diagnosticsError.stack = [
-			'Error: WGSL compilation failed',
+			`Error: ${diagnosticsError.message}`,
 			'at render (Renderer.ts:42:7)'
 		].join('\n');
 		const throwingRenderer: MockRenderer = {
@@ -601,7 +604,7 @@ describe('React FragCanvas runtime', () => {
 		};
 		createRendererMock.mockResolvedValue(throwingRenderer);
 
-		render(<FragCanvas material={material} />);
+		const view = render(<FragCanvas material={material} />);
 		await flushFrame(16);
 		await flushFrame(32);
 
@@ -638,25 +641,13 @@ describe('React FragCanvas runtime', () => {
 		expect(overlay.querySelector('[role="tablist"]')).toBeNull();
 		expect(overlay.querySelector('[role="tab"]')).toBeNull();
 		expect(overlay.querySelector('.spektral-error-source-frame > figcaption')).not.toBeNull();
-		const metadata = overlay.querySelector('.spektral-error-metadata');
-		expect(metadata?.tagName).toBe('DL');
-		expect(metadata?.getAttribute('aria-label')).toBe('Shader diagnostics');
-		expect(
-			Array.from(metadata?.querySelectorAll('.spektral-error-metadata-item') ?? []).map((item) => [
-				item.querySelector('dt')?.textContent,
-				item.querySelector('dd')?.textContent
-			])
-		).toEqual([
-			['Stage', 'fragment'],
-			['Source', 'user'],
-			['Location', '2:6']
-		]);
+		expect(overlay.querySelector('.spektral-error-metadata')).toBeNull();
 		expect(overlay.textContent).toContain('WGSL compilation failed');
 		expect(overlay.textContent).toContain('missing return');
 		expect(overlay.textContent).toContain('OverlayScene.svelte (fragment line 2');
 		expect(overlay.textContent).toContain('let broken = uv.x');
-		expect(overlay.textContent).toContain('Additional diagnostics');
-		expect(overlay.textContent).toContain('expected ;');
+		expect(overlay.textContent).not.toContain('Additional diagnostics');
+		expect(overlay.textContent).not.toContain('expected ;');
 		expect(overlay.textContent).toContain('Stack trace');
 		expect(overlay.textContent).toContain('at render (Renderer.ts:42:7)');
 		expect(overlay.querySelector('.spektral-error-code')).toBeNull();
@@ -666,7 +657,7 @@ describe('React FragCanvas runtime', () => {
 		expect(overlay.querySelectorAll('.spektral-error-badge')).toHaveLength(2);
 		expect(overlay.querySelectorAll('.spektral-error-badge-wrap')).toHaveLength(2);
 		const detailChevrons = overlay.querySelectorAll('.spektral-error-details-chevron');
-		expect(detailChevrons).toHaveLength(3);
+		expect(detailChevrons).toHaveLength(2);
 		expect(detailChevrons[0]?.getAttribute('viewBox')).toBe('0 0 18 18');
 		expect(detailChevrons[0]?.getAttribute('aria-hidden')).toBe('true');
 		expect(detailChevrons[0]?.querySelector('polyline')?.getAttribute('points')).toBe(
@@ -690,6 +681,26 @@ describe('React FragCanvas runtime', () => {
 		).find((section) => section.querySelector('summary')?.textContent?.includes('Runtime context'));
 		expect(runtimeContextDetails).toBeTruthy();
 		expect(runtimeContextDetails?.hasAttribute('open')).toBe(false);
+
+		const diagnostics = getShaderCompilationDiagnostics(diagnosticsError)!;
+		const nextError = attachShaderCompilationDiagnostics(
+			new Error('WGSL compilation failed:\nexpected ;'),
+			{ ...diagnostics, diagnostics: diagnostics.diagnostics.slice(1) }
+		);
+		throwingRenderer.render.mockImplementation(() => {
+			throw nextError;
+		});
+		view.rerender(<FragCanvas material={alternateMaterial} />);
+		await flushFrame(48);
+		await flushFrame(64);
+
+		await waitFor(() => {
+			const nextOverlay = screen.getByTestId('spektral-error');
+			expect(nextOverlay.textContent).toContain('expected ;');
+			expect(nextOverlay.textContent).not.toContain('missing return');
+			expect(nextOverlay.textContent).toContain('OverlayScene.svelte (fragment line 3)');
+			expect(nextOverlay.querySelectorAll('.spektral-error-source-row-active')).toHaveLength(1);
+		});
 		document.dispatchEvent(
 			new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
 		);
@@ -780,7 +791,7 @@ describe('React FragCanvas runtime', () => {
 		expect(snippetLines.some((line) => line.textContent === ' ')).toBe(true);
 	});
 
-	it('shows technical details section when source diagnostics are unavailable', async () => {
+	it('shows only the main error when source diagnostics are unavailable', async () => {
 		const genericError = new Error('top-level failure\ndetail line one');
 		genericError.stack = '';
 		createRendererMock.mockResolvedValue({
@@ -795,8 +806,9 @@ describe('React FragCanvas runtime', () => {
 		await flushFrame(32);
 
 		const overlay = await screen.findByTestId('spektral-error');
-		expect(overlay.textContent).toContain('Technical details');
-		expect(overlay.textContent).toContain('detail line one');
+		expect(overlay.textContent).toContain('top-level failure');
+		expect(overlay.textContent).not.toContain('Technical details');
+		expect(overlay.textContent).not.toContain('detail line one');
 		expect(overlay.textContent).not.toContain('Stack trace');
 	});
 

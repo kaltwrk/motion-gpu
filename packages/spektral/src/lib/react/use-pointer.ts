@@ -46,20 +46,21 @@ export function usePointer(options: UsePointerOptions = {}): UsePointerResult {
 	}
 
 	const controller = controllerRef.current;
-	const canvas = spektral.canvas;
 
 	useEffect(() => {
 		controller.updateOptions(options);
 	});
 
 	useEffect(() => {
+		// The canvas ref is attached during commit, after the initial render.
+		const canvas = spektral.canvas;
 		if (!canvas) {
 			return;
 		}
 
 		controller.mount(canvas);
 		return controller.destroy;
-	}, [canvas, controller]);
+	}, [spektral, controller]);
 
 	return controller;
 }

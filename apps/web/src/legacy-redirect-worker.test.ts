@@ -9,6 +9,10 @@ describe('legacy redirect worker', () => {
 		],
 		['https://www.motion-gpu.dev/playground', 'https://spektral.madebyhex.com/playground'],
 		[
+			'https://www.spektral.madebyhex.com/docs/render-passes?framework=react',
+			'https://spektral.madebyhex.com/docs/render-passes?framework=react'
+		],
+		[
 			'https://preview.motion-gpu.dev/playground/embed?session=test',
 			'https://preview.spektral.madebyhex.com/playground/embed?session=test'
 		]

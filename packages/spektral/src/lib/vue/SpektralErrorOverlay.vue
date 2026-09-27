@@ -108,11 +108,6 @@ onUnmounted(() => {
 const model = computed(() => createSpektralErrorOverlayModel(props.report));
 const displayMessage = computed(() => model.value.displayMessage);
 const showDisplayMessage = computed(() => displayMessage.value.length > 0);
-const detailsText = computed(() => props.report.details.join('\n'));
-const stackText = computed(() => props.report.stack.join('\n'));
-const detailsSummary = computed(() =>
-	props.report.source ? 'Additional diagnostics' : 'Technical details'
-);
 </script>
 
 <template>
@@ -211,15 +206,9 @@ const detailsSummary = computed(() =>
 					</section>
 
 					<div class="spektral-error-sections">
-						<details v-if="report.details.length > 0" class="spektral-error-details" open>
-							<summary>
-								<ChevronDownIcon /><span>{{ detailsSummary }}</span>
-							</summary>
-							<pre>{{ detailsText }}</pre>
-						</details>
-						<details v-if="report.stack.length > 0" class="spektral-error-details">
+						<details v-if="model.stackText.length > 0" class="spektral-error-details">
 							<summary><ChevronDownIcon /><span>Stack trace</span></summary>
-							<pre>{{ stackText }}</pre>
+							<pre>{{ model.stackText }}</pre>
 						</details>
 						<details v-if="report.context" class="spektral-error-details">
 							<summary><ChevronDownIcon /><span>Runtime context</span></summary>
