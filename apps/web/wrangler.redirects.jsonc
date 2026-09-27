@@ -9,8 +9,8 @@
 	},
 	"routes": [
 		{
-			"pattern": "www.spektral.madebyhex.com",
-			"custom_domain": true
+			"pattern": "www.spektral.madebyhex.com/*",
+			"zone_name": "madebyhex.com"
 		},
 		{
 			"pattern": "motion-gpu.dev",
