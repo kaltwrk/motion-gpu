@@ -319,7 +319,7 @@ function buildSourceFromDiagnostics(error: unknown): SpektralErrorSource | null 
 		return null;
 	}
 
-	const primary = diagnostics.diagnostics.find((entry) => entry.sourceLocation !== null);
+	const primary = diagnostics.diagnostics[0];
 	if (!primary?.sourceLocation) {
 		return null;
 	}
@@ -389,9 +389,7 @@ function buildSourceFromDiagnostics(error: unknown): SpektralErrorSource | null 
 
 function buildShaderMetadata(error: unknown): SpektralShaderErrorMetadata | null {
 	const diagnostics = getShaderCompilationDiagnostics(error);
-	const primary =
-		diagnostics?.diagnostics.find((entry) => entry.sourceLocation !== null) ??
-		diagnostics?.diagnostics[0];
+	const primary = diagnostics?.diagnostics[0];
 	if (!diagnostics || !primary) return null;
 	const location = primary.sourceLocation;
 	const sourceKind: SpektralShaderErrorSourceKind =

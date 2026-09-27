@@ -5,6 +5,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Removed the Stage, Source, and Location badges from the Svelte, React, and Vue error overlays.
+- Error overlays now show one error at a time, without the Additional diagnostics section. After an error is fixed, the next compilation shows the next remaining error.
+
 ### Fixed
 
 - Fixed React `usePointer` missing pointer events on initial mount because it read the canvas ref before React attached it. Pointer tracking now starts after the canvas mounts, including in Strict Mode.
