@@ -5,6 +5,12 @@ description: All notable changes to Spektral will be documented in this file. Th
 
 > This page is auto-generated from `CHANGELOG.md` in the repository root.
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed React `usePointer` missing pointer events on initial mount because it read the canvas ref before React attached it. Pointer tracking now starts after the canvas mounts, including in Strict Mode.
+
 ## [0.17.0] - 2026-09-04
 
 ### Breaking
