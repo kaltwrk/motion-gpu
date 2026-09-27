@@ -33,7 +33,7 @@
 		"typescript": "catalog:",
 		"typescript-eslint": "^8.68.0",
 		"vite": "^8.2.1",
-		"vitest": "^4.1.10",
+		"vitest": "^4.1.11",
 		"wrangler": "^4.125.0"
 	},
 	"private": true,
