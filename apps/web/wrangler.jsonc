@@ -20,6 +20,10 @@
 			"custom_domain": true
 		},
 		{
+			"pattern": "www.spektral.madebyhex.com",
+			"custom_domain": true
+		},
+		{
 			"pattern": "preview.spektral.madebyhex.com",
 			"custom_domain": true
 		}
