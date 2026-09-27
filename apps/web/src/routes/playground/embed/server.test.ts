@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GET } from './+server';
+
+const environment = vi.hoisted(() => ({ dev: false }));
+vi.mock('$app/environment', () => environment);
+afterEach(() => {
+	environment.dev = false;
+});
 
 vi.mock('$env/dynamic/private', () => ({
 	env: {
@@ -37,6 +43,7 @@ describe('playground preview endpoint', () => {
 		expect(response.headers.get('permissions-policy')).toContain('camera=()');
 		expect(response.headers.get('referrer-policy')).toBe('no-referrer');
 		expect(response.headers.get('cross-origin-resource-policy')).toBe('cross-origin');
+		expect(response.headers.get('origin-agent-cluster')).toBe('?1');
 		expect(response.headers.get('cache-control')).toBe('no-store');
 		expect(html).toContain('color-scheme: dark');
 		expect(html).toContain("if (self.origin !== 'null')");
@@ -51,6 +58,20 @@ describe('playground preview endpoint', () => {
 		expect(response.status).toBe(200);
 		expect(response.headers.get('content-security-policy')).toContain(
 			'frame-ancestors https://preview.spektral.madebyhex.com'
+		);
+	});
+
+	it('allows the paired loopback origin only in development', async () => {
+		const url = new URL(
+			'http://127.0.0.1:5173/playground/embed?session=local-preview&parent_origin=http%3A%2F%2Flocalhost%3A5173'
+		);
+		const event = { url } as Parameters<typeof GET>[0];
+		expect((await GET(event)).status).toBe(400);
+		environment.dev = true;
+		const response = await GET(event);
+		expect(response.status).toBe(200);
+		expect(response.headers.get('content-security-policy')).toContain(
+			'frame-ancestors http://localhost:5173'
 		);
 	});
 

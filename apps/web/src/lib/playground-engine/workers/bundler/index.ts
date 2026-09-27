@@ -207,7 +207,8 @@ async function get_bundle(
 			const pkg_name = match[1];
 
 			if (pkg_name === 'react' || pkg_name === 'react-dom') {
-				const fallbackVersion = '18.3.1';
+				// Spektral's React adapter requires React 19, including ref cleanup support.
+				const fallbackVersion = '19.2.8';
 				const requestedVersion = match[2] ?? fallbackVersion;
 				const resolvedVersion = await resolve_version(pkg_name, requestedVersion).catch(
 					() => requestedVersion

@@ -151,7 +151,7 @@ test('isolates preview storage and DOM while keeping the message protocol operat
 		'sandbox allow-scripts allow-popups'
 	);
 	expect(embedResponse.headers()['content-security-policy']).toContain(
-		'frame-ancestors http://127.0.0.1:4178'
+		`frame-ancestors ${new URL(page.url()).origin}`
 	);
 	expect(embedResponse.headers()['permissions-policy']).toContain('camera=()');
 });
