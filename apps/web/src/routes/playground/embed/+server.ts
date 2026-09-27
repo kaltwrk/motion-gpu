@@ -98,6 +98,14 @@ const buildEmbedHtml = ({
 					throw new Error('Playground preview requires an opaque origin.');
 				}
 
+				// Rebuilt demos and error dialogs must not take focus from the editor.
+				// Clicking or tabbing into the preview still allows its normal focus management.
+				const focusElement = HTMLElement.prototype.focus;
+				HTMLElement.prototype.focus = function (options) {
+					if (!document.hasFocus()) return;
+					focusElement.call(this, options);
+				};
+
 				const CHANNEL = ${JSON.stringify(PLAYGROUND_PREVIEW_CHANNEL)};
 				const SESSION_ID = ${JSON.stringify(sessionId)};
 				const ALLOWED_PARENT_ORIGIN = ${JSON.stringify(parentOrigin)};
