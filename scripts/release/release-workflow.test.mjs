@@ -60,10 +60,10 @@ test('uses the trusted-publishing runner, environment, and least privileges', ()
 	);
 });
 
-test('locks the 0.17.0 workspace identity to spektral and exactly 10 entrypoints', () => {
+test('locks the 0.17.1 workspace identity to spektral and exactly 10 entrypoints', () => {
 	assert.equal(rootManifest.name, 'spektral-monorepo');
 	assert.equal(packageManifest.name, 'spektral');
-	assert.equal(packageManifest.version, '0.17.0');
+	assert.equal(packageManifest.version, '0.17.1');
 	assert.deepEqual(packageManifest.repository, {
 		type: 'git',
 		url: 'https://github.com/kaltwrk/spektral',
