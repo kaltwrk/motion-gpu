@@ -54,7 +54,9 @@ async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
 	};
 }
 
-export async function readComputeRemoval(action: 'remove' | 'replace' | 'remount' | 'disable') {
+export async function readComputeRemoval(
+	action: 'remove' | 'replace' | 'remount' | 'disable' | 'switch-writer'
+) {
 	const pingPong = new PingPongComputePass({
 		compute: `@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {
 			let value = textureLoad(previous, id.xy, 0);
@@ -91,9 +93,9 @@ export async function readComputeRemoval(action: 'remove' | 'replace' | 'remount
 	);
 	try {
 		const pixels = [await proof.draw()];
-		if (action === 'disable') pingPong.enabled = false;
+		if (action === 'disable' || action === 'switch-writer') pingPong.enabled = false;
 		else passes.splice(1, 1);
-		if (action === 'replace') {
+		if (action === 'replace' || action === 'switch-writer') {
 			passes.push(
 				new ComputePass({
 					compute: `@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {
@@ -106,6 +108,14 @@ export async function readComputeRemoval(action: 'remove' | 'replace' | 'remount
 		pixels.push(await proof.draw());
 		if (action === 'remount') passes.push(pingPong);
 		pixels.push(await proof.draw());
+		if (action === 'switch-writer') {
+			passes.at(-1)!.enabled = false;
+			pingPong.enabled = true;
+			pixels.push(await proof.draw());
+			pingPong.enabled = false;
+			passes.at(-1)!.enabled = true;
+			pixels.push(await proof.draw());
+		}
 		return pixels;
 	} finally {
 		proof.renderer.destroy();

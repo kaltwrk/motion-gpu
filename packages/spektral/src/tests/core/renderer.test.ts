@@ -3532,6 +3532,75 @@ describe('createRenderer', () => {
 		renderer.destroy();
 	});
 
+	it('publishes a regular compute writer after ping-pong while preserving initial reads and binding caches', async () => {
+		const runtime = createWebGpuRuntime();
+		const { ComputePass, PingPongComputePass } = await import('../../lib/passes');
+		const compute =
+			'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {}';
+		const pingPong = new PingPongComputePass({
+			compute,
+			resources: {
+				previous: { texture: 'sim', access: 'sampled', pingPong: 'read' },
+				next: { texture: 'sim', access: 'storage-write', pingPong: 'write' }
+			}
+		});
+		const writer = new ComputePass({
+			compute,
+			enabled: false,
+			resources: {
+				next: { texture: 'sim', access: 'storage-write' }
+			}
+		});
+		const reader = (version: 'initial' | 'current') =>
+			new ComputePass({
+				compute,
+				resources: {
+					input: { texture: 'sim', access: 'sampled', version }
+				}
+			});
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['sim'],
+			textureDefinitions: { sim: { storage: true, format: 'rgba8unorm', width: 8, height: 8 } },
+			passes: [reader('current'), writer, pingPong, reader('initial')]
+		});
+		const draw = () =>
+			renderer.render({ time: 0, delta: 0.016, renderMode: 'manual', uniforms: {}, textures: {} });
+		const entriesOf = (group: unknown) => {
+			const index = runtime.device.createBindGroup.mock.results.findIndex(
+				(result) => result.value === group
+			);
+			return Array.from(
+				(runtime.device.createBindGroup.mock.calls[index]![0] as GPUBindGroupDescriptor).entries
+			);
+		};
+		draw();
+		const allocations = runtime.textures.filter(
+			(texture) => (texture.descriptor.usage & GPUTextureUsage.STORAGE_BINDING) !== 0
+		);
+		const ownedView = allocations[0]!.createView.mock.results[0]!.value;
+		const previousView = allocations[2]!.createView.mock.results[0]!.value;
+		pingPong.enabled = false;
+		writer.enabled = true;
+		draw();
+		const boundResources = runtime.computePasses
+			.at(-1)!
+			.setBindGroup.mock.calls.filter((call) => call[0] === 1);
+		expect(boundResources).toHaveLength(3);
+		expect(entriesOf(boundResources[0]![1])[0]!.resource).toBe(previousView);
+		expect(entriesOf(boundResources[1]![1])[0]!.resource).toBe(ownedView);
+		expect(entriesOf(boundResources[2]![1])[0]!.resource).toBe(ownedView);
+		const sceneGroup = runtime.renderPasses.at(-1)!.setBindGroup.mock.calls[0]![1];
+		expect(entriesOf(sceneGroup).find((entry) => entry.binding === 3)?.resource).toBe(ownedView);
+		draw(); // The initial reader now imports the regular writer's previous result.
+		const bindGroupCount = runtime.device.createBindGroup.mock.calls.length;
+		const pipelineCount = runtime.device.createComputePipeline.mock.calls.length;
+		draw();
+		expect(runtime.device.createBindGroup).toHaveBeenCalledTimes(bindGroupCount);
+		expect(runtime.device.createComputePipeline).toHaveBeenCalledTimes(pipelineCount);
+		renderer.destroy();
+	});
+
 	it.each([false, true])(
 		'detaches only the removed compute pair that owns the published view (other owner: %s)',
 		async (otherOwner) => {

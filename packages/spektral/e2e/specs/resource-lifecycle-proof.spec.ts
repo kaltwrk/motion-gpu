@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
 	await page.goto('/resource-lifecycle-proof');
 });
 
-for (const action of ['remove', 'replace', 'remount', 'disable'] as const) {
+for (const action of ['remove', 'replace', 'remount', 'disable', 'switch-writer'] as const) {
 	test(`compute ping-pong ${action} keeps scene and downstream views valid`, async ({ page }) => {
 		const pixels = await page.evaluate(
 			async ({ url, action }) => {
@@ -25,13 +25,15 @@ for (const action of ['remove', 'replace', 'remount', 'disable'] as const) {
 		const empty = [0, 0, 0, 255];
 		const green = [0, 255, 255, 255];
 		expect(pixels).toEqual(
-			action === 'replace'
-				? [first, green, green]
-				: action === 'disable'
-					? [first, first, first]
-					: action === 'remount'
-						? [first, empty, first]
-						: [first, empty, empty]
+			action === 'switch-writer'
+				? [first, green, green, [64, 0, 64, 255], green]
+				: action === 'replace'
+					? [first, green, green]
+					: action === 'disable'
+						? [first, first, first]
+						: action === 'remount'
+							? [first, empty, first]
+							: [first, empty, empty]
 		);
 	});
 }

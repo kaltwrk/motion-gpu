@@ -2568,8 +2568,12 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 						for (const entry of resources.entries) {
 							if (entry.source !== 'material' || written.has(String(entry.logicalId))) continue;
 							if (entry.kind === 'storage-texture') {
-								written.add(String(entry.logicalId));
-								resourceRegistry.markTextureWritten(String(entry.logicalId));
+								const logicalId = String(entry.logicalId);
+								written.add(logicalId);
+								const resource = resourceRegistry.requireTexture(logicalId);
+								if (resourceRegistry.markTextureWritten(logicalId, resource.sampledView)) {
+									if (textureBindingByKey.get(logicalId)?.fragmentVisible) bindGroupDirty = true;
+								}
 							} else if (entry.kind === 'storage-buffer' && entry.access === 'storage-read-write') {
 								written.add(String(entry.logicalId));
 								resourceRegistry.markStorageBufferWritten(String(entry.logicalId));

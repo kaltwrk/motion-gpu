@@ -17,6 +17,7 @@ description: All notable changes to Spektral will be documented in this file. Th
 - Fixed runtime texture `colorSpace` overrides being ignored by automatic format selection. Changes now reallocate the texture with the correct decode format, while explicit formats retain precedence and have distinct material cache signatures.
 - Fixed stale runtime uniform overrides surviving material changes to a different uniform type. Incompatible overrides now reset to the new material default before packing, while overrides for unchanged types remain intact.
 - Fixed removing a `PingPongComputePass` leaving consumers bound to destroyed textures. Removal now restores the material allocation for scene and compute readers without replacing another pass's published result.
+- Fixed ordinary compute writes remaining invisible after a ping-pong writer was disabled. The written allocation is now published to downstream compute and the scene, while initial-version readers retain the frame's previous value.
 
 ## [0.17.1] - 2026-09-27
 
