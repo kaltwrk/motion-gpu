@@ -96,6 +96,7 @@ export function createSpektralRuntimeLoop(
 	const frameScheduling = getFrameScheduling(registry);
 	let frameId: number | null = null;
 	let retryTimerId: ReturnType<typeof setTimeout> | null = null;
+	let errorClearTimerId: ReturnType<typeof setTimeout> | null = null;
 	let renderer: Renderer | null = null;
 	let isDisposed = false;
 
@@ -166,14 +167,14 @@ export function createSpektralRuntimeLoop(
 	let activeErrorKey: string | null = null;
 	let errorHistory: SpektralErrorReport[] = [];
 	let errorClearReadyAtMs = 0;
-	let lastFrameTimestampMs = performance.now();
+	let errorNeedsSuccessfulRender = false;
 
 	const resolveNowMs = (nowMs?: number): number => {
 		if (typeof nowMs === 'number' && Number.isFinite(nowMs)) {
 			return nowMs;
 		}
 
-		return lastFrameTimestampMs;
+		return performance.now();
 	};
 
 	const getHistoryLimit = (): number => {
@@ -219,7 +220,22 @@ export function createSpektralRuntimeLoop(
 		publishErrorHistory();
 	};
 
-	const setError = (error: unknown, phase: SpektralErrorPhase, nowMs?: number): void => {
+	const cancelErrorClear = (): void => {
+		if (errorClearTimerId !== null) {
+			clearTimeout(errorClearTimerId);
+			errorClearTimerId = null;
+		}
+	};
+
+	const setError = (
+		error: unknown,
+		phase: SpektralErrorPhase,
+		nowMs?: number,
+		requiresRender = phase === 'render'
+	): void => {
+		if (isDisposed) return;
+		cancelErrorClear();
+		errorNeedsSuccessfulRender = requiresRender;
 		const report = toSpektralErrorReport(error, phase);
 		errorClearReadyAtMs = resolveNowMs(nowMs) + ERROR_CLEAR_GRACE_MS;
 		const reportKey = JSON.stringify({
@@ -264,13 +280,22 @@ export function createSpektralRuntimeLoop(
 	};
 
 	const maybeClearError = (nowMs?: number): void => {
-		if (activeErrorKey === null) {
+		if (isDisposed || activeErrorKey === null) {
 			return;
 		}
-		if (resolveNowMs(nowMs) < errorClearReadyAtMs) {
+		const remainingMs = errorClearReadyAtMs - resolveNowMs(nowMs);
+		if (remainingMs > 0) {
+			// Successful recovery must also expire while manual/on-demand rendering is idle.
+			if (errorClearTimerId === null) {
+				errorClearTimerId = setTimeout(() => {
+					errorClearTimerId = null;
+					maybeClearError();
+				}, remainingMs);
+			}
 			return;
 		}
 
+		cancelErrorClear();
 		activeErrorKey = null;
 		errorClearReadyAtMs = 0;
 		options.reportError(null);
@@ -524,7 +549,6 @@ export function createSpektralRuntimeLoop(
 		if (isDisposed) {
 			return;
 		}
-		lastFrameTimestampMs = timestamp;
 		syncErrorHistory();
 
 		let materialState: ResolvedMaterial;
@@ -655,6 +679,7 @@ export function createSpektralRuntimeLoop(
 			registry.invalidate();
 		}
 
+		let tasksCompleted = false;
 		try {
 			registry.run({
 				time,
@@ -669,6 +694,7 @@ export function createSpektralRuntimeLoop(
 				autoRender: registry.getAutoRender(),
 				canvas: canvasElement
 			});
+			tasksCompleted = true;
 
 			const shouldRenderFrame = registry.shouldRender();
 			shouldContinueAfterFrame =
@@ -713,10 +739,9 @@ export function createSpektralRuntimeLoop(
 					pendingStorageWrites.length = 0;
 				}
 			}
-
-			maybeClearError(timestamp);
+			if (shouldRenderFrame || !errorNeedsSuccessfulRender) maybeClearError(timestamp);
 		} catch (error) {
-			setError(error, 'render', timestamp);
+			setError(error, 'render', timestamp, tasksCompleted);
 			if (renderer && shouldRecreateRendererAfterError(error)) {
 				renderer.destroy();
 				renderer = null;
@@ -769,6 +794,7 @@ export function createSpektralRuntimeLoop(
 				frameId = null;
 			}
 			clearRetryTimer();
+			cancelErrorClear();
 			pendingStorageWrites.length = 0;
 			renderer?.destroy();
 			registry.clear();

@@ -20,6 +20,7 @@ description: All notable changes to Spektral will be documented in this file. Th
 - Fixed ordinary compute writes remaining invisible after a ping-pong writer was disabled. The written allocation is now published to downstream compute and the scene, while initial-version readers retain the frame's previous value.
 - Fixed shared `PingPongShaderPass` instances mixing iteration parity and reset state across canvases. Each texture pair now tracks its own state through resets, resizing, and renderer disposal.
 - Fixed `premultipliedAlpha` texture uploads being ignored. The option now reaches WebGPU's destination descriptor for initial sources and runtime uploads, with vertical flipping kept on the source descriptor.
+- Fixed recovered errors remaining visible while on-demand or manual rendering is idle. Successful task or renderer recovery now schedules diagnostic expiry without extra GPU frames; recurring errors cancel it, asynchronous errors use their arrival time, and disposal cancels pending callbacks.
 
 ## [0.17.1] - 2026-09-27
 
