@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed fragment feedback passes reading the canvas resolution instead of their own texture dimensions when commands share a submission.
+
 ## [0.17.1] - 2026-09-27
 
 ### Changed

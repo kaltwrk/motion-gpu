@@ -146,6 +146,7 @@ interface PingPongTexturePair {
  * Runtime fragment-feedback textures for a single pass instance.
  */
 interface PingPongShaderTexturePair {
+	frameBuffer: GPUBuffer;
 	target: string;
 	format: GPUTextureFormat;
 	width: number;
@@ -826,6 +827,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		};
 
 		const destroyPingPongShaderTexturePair = (pair: PingPongShaderTexturePair): void => {
+			pair.frameBuffer.destroy();
 			pair.textureA.destroy();
 			pair.textureB.destroy();
 		};
@@ -894,6 +896,10 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			});
 
 			const pair: PingPongShaderTexturePair = {
+				frameBuffer: device.createBuffer({
+					size: 16,
+					usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+				}),
 				target: options.target,
 				format: options.format,
 				width: options.width,
@@ -1480,13 +1486,19 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		let hasUniformSnapshot = false;
 		const mipmapGenerator = createGpuMipmapGenerator(device);
 
-		const writeFrameBuffer = (time: number, delta: number, width: number, height: number): void => {
+		const writeFrameBuffer = (
+			time: number,
+			delta: number,
+			width: number,
+			height: number,
+			destination = frameBuffer
+		): void => {
 			frameScratch[0] = time;
 			frameScratch[1] = delta;
 			frameScratch[2] = width;
 			frameScratch[3] = height;
 			device.queue.writeBuffer(
-				frameBuffer,
+				destination,
 				0,
 				frameScratch.buffer as ArrayBuffer,
 				frameScratch.byteOffset,
@@ -1499,10 +1511,11 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		 */
 		const createTextureBindGroup = (
 			layout: GPUBindGroupLayout,
-			bindings: RuntimeTextureBinding[]
+			bindings: RuntimeTextureBinding[],
+			frameUniformBuffer = frameBuffer
 		): GPUBindGroup => {
 			const entries: GPUBindGroupEntry[] = [
-				{ binding: FRAME_BINDING, resource: { buffer: frameBuffer } },
+				{ binding: FRAME_BINDING, resource: { buffer: frameUniformBuffer } },
 				{ binding: UNIFORM_BINDING, resource: { buffer: uniformBuffer } }
 			];
 
@@ -1526,10 +1539,14 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		const createBindGroup = (): GPUBindGroup =>
 			createTextureBindGroup(bindGroupLayout, fragmentTextureBindings);
 
-		const createPingPongShaderBindGroup = (entry: PingPongShaderPipelineEntry): GPUBindGroup =>
+		const createPingPongShaderBindGroup = (
+			entry: PingPongShaderPipelineEntry,
+			frameUniformBuffer: GPUBuffer
+		): GPUBindGroup =>
 			createTextureBindGroup(
 				entry.bindGroupLayout,
-				getFragmentTextureBindingsForKeys(entry.textureKeys)
+				getFragmentTextureBindingsForKeys(entry.textureKeys),
+				frameUniformBuffer
 			);
 
 		const attachFeedbackTextureBinding = (
@@ -2420,16 +2437,6 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			const slots = frameSlotsActive ? frameSlots : null;
 			const sceneOutput = slots ? slots.source : (presentationSurface ?? canvasSurface);
 
-			let activeFrameBufferWidth = width;
-			let activeFrameBufferHeight = height;
-			const ensureFrameBufferResolution = (nextWidth: number, nextHeight: number): void => {
-				if (activeFrameBufferWidth === nextWidth && activeFrameBufferHeight === nextHeight) {
-					return;
-				}
-				writeFrameBuffer(time, delta, nextWidth, nextHeight);
-				activeFrameBufferWidth = nextWidth;
-				activeFrameBufferHeight = nextHeight;
-			};
 			const clearFeedbackView = (
 				view: GPUTextureView,
 				clearColor: [number, number, number, number]
@@ -2453,7 +2460,6 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			let feedbackStepIndex = 0;
 			for (const step of graphPlan.preSceneSteps) {
 				if (step.kind === 'compute') {
-					ensureFrameBufferResolution(width, height);
 					const computeStepLabel = step.computeLabel ?? `Compute pass #${computeStepIndex}`;
 					computeStepIndex += 1;
 					if (!isManagedComputePass(step.pass)) {
@@ -2603,7 +2609,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					addressModeV: feedbackPass.getAddressModeV()
 				});
 				const pipelineEntry = buildPingPongShaderPipelineEntry(feedbackPass, pair.format, target);
-				const feedbackBindGroup = createPingPongShaderBindGroup(pipelineEntry);
+				const feedbackBindGroup = createPingPongShaderBindGroup(pipelineEntry, pair.frameBuffer);
 				const resetColor = feedbackPass.consumeResetColor();
 				const initializationColor =
 					resetColor ?? (pair.needsClear ? feedbackPass.getClearColor() : null);
@@ -2620,7 +2626,9 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					);
 				}
 
-				ensureFrameBufferResolution(pair.width, pair.height);
+				// Queue writes precede the shared submission, so each feedback pass
+				// needs its own buffer instead of overwriting the scene's resolution.
+				writeFrameBuffer(time, delta, pair.width, pair.height, pair.frameBuffer);
 				const currentOutput = feedbackPass.getCurrentOutput();
 				const readFromAAtIterationZero = currentOutput !== `${pair.target}B`;
 
@@ -2659,7 +2667,6 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			if (bindGroupDirty) {
 				bindGroup = createBindGroup();
 			}
-			ensureFrameBufferResolution(width, height);
 
 			const scenePass = commandEncoder.beginRenderPass({
 				colorAttachments: [

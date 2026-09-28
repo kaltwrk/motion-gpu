@@ -3628,6 +3628,40 @@ describe('createRenderer', () => {
 		renderer.destroy();
 	});
 
+	it('releases feedback frame buffers on resize, removal, and renderer teardown', async () => {
+		const runtime = createWebGpuRuntime();
+		const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+		const pass = new PingPongShaderPass({
+			target: 'fluid',
+			width: 8,
+			height: 8,
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }'
+		});
+		let passes = [pass];
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['fluid'],
+			textureDefinitions: { fluid: {} },
+			getPasses: () => passes
+		});
+		const initialBufferCount = runtime.buffers.length;
+		renderFrame(renderer);
+		const firstBuffers = runtime.buffers.slice(initialBufferCount);
+		expect(firstBuffers.length).toBeGreaterThan(0);
+		pass.setDimensions(16, 16);
+		renderFrame(renderer);
+		for (const buffer of firstBuffers) expect(buffer.destroy).toHaveBeenCalledTimes(1);
+		passes = [];
+		renderFrame(renderer);
+		for (const buffer of runtime.buffers.slice(initialBufferCount)) {
+			expect(buffer.destroy).toHaveBeenCalledTimes(1);
+		}
+		passes = [pass];
+		renderFrame(renderer);
+		renderer.destroy();
+		for (const buffer of runtime.buffers) expect(buffer.destroy).toHaveBeenCalledTimes(1);
+	});
+
 	it('excludes the ping-pong shader target from the feedback material bind group', async () => {
 		const runtime = createWebGpuRuntime();
 		const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
