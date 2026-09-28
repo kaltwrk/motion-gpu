@@ -3,6 +3,19 @@ import { expect, test } from '@playwright/test';
 
 const proofUrl = `/@fs${fileURLToPath(new URL('../renderer-proof.ts', import.meta.url))}`;
 
+test('explicit null clears a default texture and omission restores it', async ({ page }) => {
+	const pixels = await page.evaluate(async (url) => {
+		const proof: typeof import('../renderer-proof') = await import(/* @vite-ignore */ url);
+		return proof.readTextureReset();
+	}, proofUrl);
+	expect(pixels).toEqual([
+		[255, 0, 0, 255],
+		[255, 255, 255, 255],
+		[255, 255, 255, 255],
+		[255, 0, 0, 255]
+	]);
+});
+
 test.beforeEach(async ({ page }) => {
 	await page.route('**/renderer-proof', (route) =>
 		route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><body></body></html>' })

@@ -1548,6 +1548,39 @@ describe('createRenderer', () => {
 		).toBe(initialTextureView);
 	});
 
+	it('clears an explicit null even when the material supplies a default source', async () => {
+		const runtime = createWebGpuRuntime();
+		const source = document.createElement('canvas');
+		source.width = source.height = 6;
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['uTex'],
+			textureDefinitions: { uTex: { source } }
+		});
+		const uploaded = runtime.textures.find(
+			(texture) => (texture.descriptor.size as { width: number }).width === 6
+		);
+		expect(uploaded).toBeDefined();
+		const clear = () =>
+			renderer.render({
+				time: 0,
+				delta: 0.016,
+				renderMode: 'always',
+				uniforms: {},
+				textures: { uTex: null }
+			});
+		clear();
+		expect(uploaded?.destroy).toHaveBeenCalledTimes(1);
+		const groups = runtime.device.createBindGroup.mock.calls.length;
+		clear();
+		expect(runtime.device.createBindGroup).toHaveBeenCalledTimes(groups);
+		expect(runtime.device.queue.copyExternalImageToTexture).toHaveBeenCalledTimes(1);
+		renderer.render({ time: 0, delta: 0.016, renderMode: 'always', uniforms: {}, textures: {} });
+		expect(runtime.device.queue.copyExternalImageToTexture).toHaveBeenCalledTimes(2);
+		renderer.destroy();
+		expect(uploaded?.destroy).toHaveBeenCalledTimes(1);
+	});
+
 	it('generates texture mipmaps with GPU render passes after the base upload', async () => {
 		const runtime = createWebGpuRuntime();
 		const source = document.createElement('canvas');

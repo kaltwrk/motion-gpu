@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fixed default SDR postprocessing applying sRGB encoding before filters. Intermediate colors now stay linear and output encoding runs once during final presentation, including when passes are toggled.
 - Fixed on-demand scheduling stopping active frame tasks when no GPU frame was needed. Starting or registering tasks now wakes the loop, dynamic predicates and invalidation tokens keep updating, and the loop sleeps once its work stops.
 - Fixed on-demand canvases keeping stale content after a CSS resize. Changed dimensions invalidate the frame; repeated size notifications do not render again, and manual mode still waits for `advance()`.
+- Fixed explicit `null` texture values restoring the material's default source instead of clearing the texture. Clearing now releases the upload and binds the fallback; an omitted value still selects the default source.
 
 ## [0.17.1] - 2026-09-27
 

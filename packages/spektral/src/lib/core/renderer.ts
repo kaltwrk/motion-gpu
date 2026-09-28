@@ -2301,8 +2301,11 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				// Storage textures are managed by compute passes, skip source-driven updates
 				if (normalizedTextureDefinitions[binding.key]?.storage) continue;
 				if (activePingPongShaderTargets.has(binding.key)) continue;
+				const runtimeTexture = textures[binding.key];
 				const nextTexture =
-					textures[binding.key] ?? normalizedTextureDefinitions[binding.key]?.source ?? null;
+					runtimeTexture === undefined
+						? (normalizedTextureDefinitions[binding.key]?.source ?? null)
+						: runtimeTexture;
 				if (updateTextureBinding(binding, nextTexture, renderMode) && binding.fragmentVisible) {
 					bindGroupDirty = true;
 				}
