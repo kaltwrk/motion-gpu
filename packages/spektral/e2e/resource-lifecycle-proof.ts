@@ -161,3 +161,35 @@ export async function readSharedFeedback() {
 		second?.renderer.destroy();
 	}
 }
+
+export async function readPremultipliedTexture(premultipliedAlpha: boolean) {
+	const source = document.createElement('canvas');
+	source.width = source.height = 2;
+	const context = source.getContext('2d');
+	if (!context) throw new Error('Canvas 2D context is unavailable');
+	context.fillStyle = 'rgba(255, 0, 0, 0.5)';
+	context.fillRect(0, 0, 2, 2);
+	const proof = await createProofRenderer(
+		defineMaterial({
+			fragment: `fn frag(uv: vec2f) -> vec4f {
+			let value = textureLoad(photo, vec2i(0), 0);
+			return vec4f(value.r, value.a, 0.0, 1.0);
+		}`,
+			textures: {
+				photo: { source, colorSpace: 'linear', premultipliedAlpha, generateMipmaps: true }
+			}
+		}),
+		[]
+	);
+	try {
+		return [
+			await proof.draw(),
+			await proof.draw({
+				photo: { source, premultipliedAlpha: !premultipliedAlpha, update: 'perFrame' }
+			}),
+			await proof.draw({ photo: { source, premultipliedAlpha, update: 'perFrame' } })
+		];
+	} finally {
+		proof.renderer.destroy();
+	}
+}

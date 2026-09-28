@@ -10,6 +10,29 @@ test.beforeEach(async ({ page }) => {
 	await page.goto('/resource-lifecycle-proof');
 });
 
+for (const premultipliedAlpha of [true, false]) {
+	test(`texture upload honors initial and runtime premultipliedAlpha=${premultipliedAlpha}`, async ({
+		page
+	}) => {
+		const pixels = await page.evaluate(
+			async ({ url, premultipliedAlpha }) => {
+				const proof: typeof import('../resource-lifecycle-proof') = await import(
+					/* @vite-ignore */ url
+				);
+				return proof.readPremultipliedTexture(premultipliedAlpha);
+			},
+			{ url: proofUrl, premultipliedAlpha }
+		);
+		const straight = [255, 128, 0, 255];
+		const premultiplied = [128, 128, 0, 255];
+		expect(pixels).toEqual(
+			premultipliedAlpha
+				? [premultiplied, straight, premultiplied]
+				: [straight, premultiplied, straight]
+		);
+	});
+}
+
 test('shared shader feedback isolates parity, reset, resize and renderer disposal', async ({
 	page
 }) => {

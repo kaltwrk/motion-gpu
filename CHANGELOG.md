@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fixed removing a `PingPongComputePass` leaving consumers bound to destroyed textures. Removal now restores the material allocation for scene and compute readers without replacing another pass's published result.
 - Fixed ordinary compute writes remaining invisible after a ping-pong writer was disabled. The written allocation is now published to downstream compute and the scene, while initial-version readers retain the frame's previous value.
 - Fixed shared `PingPongShaderPass` instances mixing iteration parity and reset state across canvases. Each texture pair now tracks its own state through resets, resizing, and renderer disposal.
+- Fixed `premultipliedAlpha` texture uploads being ignored. The option now reaches WebGPU's destination descriptor for initial sources and runtime uploads, with vertical flipping kept on the source descriptor.
 
 ## [0.17.1] - 2026-09-27
 
