@@ -118,6 +118,21 @@ export async function readTextureReset(): Promise<number[][]> {
 	return readTextureSequence({ source }, [{}, { photo: null }, { photo: null }, {}]);
 }
 
+export async function readTextureColorSpace(format?: GPUTextureFormat): Promise<number[][]> {
+	const source = document.createElement('canvas');
+	source.width = source.height = 2;
+	const context = source.getContext('2d');
+	if (!context) throw new Error('Canvas 2D context is unavailable');
+	context.fillStyle = '#808080';
+	context.fillRect(0, 0, 2, 2);
+	return readTextureSequence({ source, generateMipmaps: true, ...(format ? { format } : {}) }, [
+		{},
+		{ photo: { source, colorSpace: 'linear' } },
+		{ photo: { source, colorSpace: 'srgb' } },
+		{}
+	]);
+}
+
 export async function readPostprocessColors(
 	constant: boolean,
 	color: ColorPipelineOptions

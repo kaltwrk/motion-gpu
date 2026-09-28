@@ -3,6 +3,27 @@ import { expect, test } from '@playwright/test';
 
 const proofUrl = `/@fs${fileURLToPath(new URL('../renderer-proof.ts', import.meta.url))}`;
 
+for (const format of [undefined, 'rgba8unorm-srgb', 'rgba16float'] as const) {
+	test(`runtime texture colorSpace respects ${format ?? 'automatic format'}`, async ({ page }) => {
+		const pixels = await page.evaluate(
+			async ({ url, format }) => {
+				const proof: typeof import('../renderer-proof') = await import(/* @vite-ignore */ url);
+				return proof.readTextureColorSpace(format);
+			},
+			{ url: proofUrl, format }
+		);
+		const expected =
+			format === 'rgba16float'
+				? [128, 128, 128, 128]
+				: format
+					? [55, 55, 55, 55]
+					: [55, 128, 55, 55];
+		for (let index = 0; index < pixels.length; index += 1) {
+			expect(Math.abs(pixels[index]![0]! - expected[index]!)).toBeLessThanOrEqual(1);
+		}
+	});
+}
+
 test('explicit null clears a default texture and omission restores it', async ({ page }) => {
 	const pixels = await page.evaluate(async (url) => {
 		const proof: typeof import('../renderer-proof') = await import(/* @vite-ignore */ url);

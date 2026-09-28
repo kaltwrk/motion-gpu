@@ -3801,6 +3801,46 @@ describe('createRenderer', () => {
 		renderer.destroy();
 	});
 
+	it.each([undefined, 'rgba8unorm-srgb', 'rgba16float'] as const)(
+		'reallocates automatic texture formats on colorSpace changes and preserves explicit %s',
+		async (format) => {
+			const runtime = createWebGpuRuntime();
+			const source = document.createElement('canvas');
+			source.width = source.height = 16;
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['uPhoto'],
+				textureDefinitions: { uPhoto: { source, ...(format ? { format } : {}) } }
+			});
+			const allocations = () =>
+				runtime.textures.filter(
+					(texture) => (texture.descriptor.size as { width: number }).width === 16
+				);
+			const initial = allocations()[0]!;
+			const pipelines = runtime.device.createRenderPipeline.mock.calls.length;
+			const render = (colorSpace: 'srgb' | 'linear') =>
+				renderer.render({
+					time: 0,
+					delta: 0.016,
+					renderMode: 'always',
+					uniforms: {},
+					textures: { uPhoto: { source, colorSpace } }
+				});
+			render('linear');
+			expect(allocations()).toHaveLength(format ? 1 : 2);
+			expect(allocations().at(-1)?.descriptor.format).toBe(format ?? 'rgba8unorm');
+			expect(initial.destroy).toHaveBeenCalledTimes(format ? 0 : 1);
+			render('linear');
+			expect(allocations()).toHaveLength(format ? 1 : 2);
+			render('srgb');
+			expect(allocations()).toHaveLength(format ? 1 : 3);
+			expect(allocations().at(-1)?.descriptor.format).toBe(format ?? 'rgba8unorm-srgb');
+			expect(runtime.device.createRenderPipeline).toHaveBeenCalledTimes(pipelines);
+			renderer.destroy();
+			for (const allocation of allocations()) expect(allocation.destroy).toHaveBeenCalledTimes(1);
+		}
+	);
+
 	it('honours explicit TextureDefinition.format when uploading source textures', async () => {
 		const runtime = createWebGpuRuntime();
 		const source = document.createElement('canvas');

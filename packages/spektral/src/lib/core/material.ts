@@ -511,6 +511,7 @@ function buildTextureConfigSignature<TTextureKey extends string>(
 		const normalized = normalizeTextureDefinition(textures[key]);
 		signature[key] = [
 			normalized.format,
+			textures[key]?.format === undefined ? 'auto' : 'explicit',
 			normalized.storage ? '1' : '0',
 			normalized.colorSpace,
 			normalized.flipY ? '1' : '0',

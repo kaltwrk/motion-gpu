@@ -1611,7 +1611,11 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 
 			const source = nextData.source;
 			const colorSpace = nextData.colorSpace ?? binding.defaultColorSpace;
-			const format = resource.format;
+			// Implicit formats follow the current source's decode policy. Both choices
+			// use the same float sampling layout; explicit formats remain authoritative.
+			const format =
+				options.textureDefinitions[binding.key]?.format ??
+				(colorSpace === 'linear' ? 'rgba8unorm' : 'rgba8unorm-srgb');
 			const flipY = nextData.flipY ?? binding.defaultFlipY;
 			const premultipliedAlpha = nextData.premultipliedAlpha ?? binding.defaultPremultipliedAlpha;
 			const generateMipmaps = nextData.generateMipmaps ?? binding.defaultGenerateMipmaps;

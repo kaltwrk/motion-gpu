@@ -190,7 +190,7 @@ export interface TextureDefinition {
 	 */
 	readonly source?: TextureValue;
 	/**
-	 * Source color space used for format/decode decisions.
+	 * Source color space used for format/decode decisions when `format` is omitted.
 	 */
 	readonly colorSpace?: 'srgb' | 'linear';
 	/**
@@ -231,6 +231,7 @@ export interface TextureDefinition {
 	readonly storage?: boolean;
 	/**
 	 * Required when storage is true. Must be a storage-compatible format.
+	 * For sampled textures, an explicit format takes precedence over source `colorSpace`.
 	 */
 	readonly format?: GPUTextureFormat;
 	/**
