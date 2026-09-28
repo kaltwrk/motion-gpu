@@ -407,10 +407,10 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		const fragmentTextureKeys = options.textureKeys.filter(
 			(key) => options.textureDefinitions[key]?.fragmentVisible !== false
 		);
-		const buildSceneShader = (premultiplyOutputAlpha: boolean) =>
+		const buildSceneShader = (directToCanvas: boolean) =>
 			buildShaderSourceWithMap(options.fragmentWgsl, options.uniformLayout, fragmentTextureKeys, {
-				convertLinearToSrgb,
-				premultiplyOutputAlpha,
+				convertLinearToSrgb: directToCanvas && convertLinearToSrgb,
+				premultiplyOutputAlpha: directToCanvas,
 				fragmentLineMap: options.fragmentLineMap,
 				...(options.storageBufferKeys !== undefined
 					? { storageBufferKeys: options.storageBufferKeys }
@@ -691,16 +691,11 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		await ensurePresentationPipeline(
 			colorPipeline.canvasFormat,
 			colorPipeline.dynamicRange === 'auto' ? 'hdr' : colorPipeline.dynamicRange,
-			colorPipeline.requiresPresentationPass,
+			true,
 			true
 		);
 		if (colorPipeline.dynamicRange === 'auto') {
-			await ensurePresentationPipeline(
-				colorPipeline.fallbackCanvasFormat,
-				'sdr',
-				colorPipeline.requiresPresentationPass,
-				true
-			);
+			await ensurePresentationPipeline(colorPipeline.fallbackCanvasFormat, 'sdr', true, true);
 		}
 		const presentationSampler = device.createSampler({
 			magFilter: presentationSamplingLayout.effectiveFilter,

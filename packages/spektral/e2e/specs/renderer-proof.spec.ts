@@ -10,6 +10,28 @@ test.beforeEach(async ({ page }) => {
 	await page.goto('/renderer-proof');
 });
 
+for (const constant of [true, false]) {
+	for (const workingFormat of ['auto', 'rgba16float'] as const) {
+		for (const outputEncoding of ['srgb', 'linear'] as const) {
+			test(`postprocessing stays linear: constant=${constant}, ${workingFormat}, ${outputEncoding}`, async ({
+				page
+			}) => {
+				const pixels = await page.evaluate(
+					async ({ url, constant, color }) => {
+						const proof: typeof import('../renderer-proof') = await import(/* @vite-ignore */ url);
+						return proof.readPostprocessColors(constant, color);
+					},
+					{ url: proofUrl, constant, color: { workingFormat, outputEncoding } }
+				);
+				const expected = outputEncoding === 'srgb' ? [188, 137, 188] : [128, 64, 128];
+				for (let index = 0; index < pixels.length; index += 1) {
+					expect(Math.abs(pixels[index]! - expected[index]!)).toBeLessThanOrEqual(1);
+				}
+			});
+		}
+	}
+}
+
 test('feedback passes and the scene read their own resolution after submission', async ({
 	page
 }) => {

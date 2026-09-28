@@ -1935,7 +1935,7 @@ describe('createRenderer', () => {
 			const shaderCode = getPipelineShaderCode(pipeline);
 			return (
 				shaderCode.includes('fn spektralPresentationFragment') &&
-				shaderCode.includes('return spektralPremultiplyForCanvas(spektralLinear);')
+				shaderCode.includes('return spektralPremultiplyForCanvas(spektralOutput);')
 			);
 		});
 		expect(presentationPipeline).toBeDefined();

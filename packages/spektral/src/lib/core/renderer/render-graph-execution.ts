@@ -161,11 +161,10 @@ export function executePostSceneRenderGraph(input: {
 		}
 
 		finalPresentationSurface = resolveStepSurface(input.graphPlan.finalOutput);
-		if (!input.presentationRequired) {
-			input.present(finalPresentationSurface.view, input.canvasSurface.view, false);
-		}
 	}
-	if (input.presentationRequired) {
+	// Scene and postprocessing surfaces contain linear colors. Encode only when
+	// presenting the final surface, including the default SDR postprocessing path.
+	if (input.slots || input.presentationRequired) {
 		input.present(finalPresentationSurface.view, input.canvasSurface.view, true);
 	}
 	return finalPresentationSurface;

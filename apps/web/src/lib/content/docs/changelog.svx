@@ -10,6 +10,7 @@ description: All notable changes to Spektral will be documented in this file. Th
 ### Fixed
 
 - Fixed fragment feedback passes reading the canvas resolution instead of their own texture dimensions when commands share a submission.
+- Fixed default SDR postprocessing applying sRGB encoding before filters. Intermediate colors now stay linear and output encoding runs once during final presentation, including when passes are toggled.
 
 ## [0.17.1] - 2026-09-27
 

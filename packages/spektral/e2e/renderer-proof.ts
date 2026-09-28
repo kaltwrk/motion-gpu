@@ -1,6 +1,8 @@
 import { defineMaterial, resolveMaterial } from '../src/lib/core/material';
 import { createRenderer } from '../src/lib/core/renderer';
 import { PingPongShaderPass } from '../src/lib/passes/PingPongShaderPass';
+import { ShaderPass } from '../src/lib/passes/ShaderPass';
+import type { ColorPipelineOptions } from '../src/lib/core/types';
 
 /** Read the submitted result, including the values the GPU actually sees in uniform buffers. */
 export async function readFeedbackResolution(): Promise<number[]> {
@@ -54,6 +56,58 @@ export async function readFeedbackResolution(): Promise<number[]> {
 		if (!context) throw new Error('Canvas 2D context is unavailable');
 		context.drawImage(canvas, 0, 0);
 		return [...context.getImageData(0, 0, 1, 1).data];
+	} finally {
+		renderer.destroy();
+	}
+}
+
+export async function readPostprocessColors(
+	constant: boolean,
+	color: ColorPipelineOptions
+): Promise<number[]> {
+	const canvas = document.createElement('canvas');
+	const material = resolveMaterial(
+		defineMaterial({
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(0.25, 0.25, 0.25, 1.0); }'
+		})
+	);
+	const pass = new ShaderPass({
+		fragment: `fn shade(inputColor: vec4f, uv: vec2f) -> vec4f {
+			return vec4f(${constant ? 'vec3f(0.5)' : 'inputColor.rgb * 2.0'}, 1.0);
+		}`
+	});
+	const renderer = await createRenderer({
+		canvas,
+		fragmentWgsl: material.fragmentWgsl,
+		fragmentSource: material.fragmentSource,
+		fragmentLineMap: [...material.fragmentLineMap],
+		includeSources: material.includeSources,
+		uniformLayout: material.uniformLayout,
+		textureKeys: [...material.textureKeys],
+		textureDefinitions: material.textures,
+		passes: [pass],
+		getDpr: () => 1,
+		getClearColor: () => [0, 0, 0, 1],
+		color
+	});
+	try {
+		const output = document.createElement('canvas');
+		output.width = output.height = 1;
+		const context = output.getContext('2d');
+		if (!context) throw new Error('Canvas 2D context is unavailable');
+		return [true, false, true].map((enabled) => {
+			pass.enabled = enabled;
+			renderer.render({
+				time: 0,
+				delta: 0.016,
+				renderMode: 'manual',
+				uniforms: {},
+				textures: {},
+				canvasSize: { width: 1, height: 1 }
+			});
+			context.drawImage(canvas, 0, 0);
+			return context.getImageData(0, 0, 1, 1).data[0]!;
+		});
 	} finally {
 		renderer.destroy();
 	}

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Fixed fragment feedback passes reading the canvas resolution instead of their own texture dimensions when commands share a submission.
+- Fixed default SDR postprocessing applying sRGB encoding before filters. Intermediate colors now stay linear and output encoding runs once during final presentation, including when passes are toggled.
 
 ## [0.17.1] - 2026-09-27
 
