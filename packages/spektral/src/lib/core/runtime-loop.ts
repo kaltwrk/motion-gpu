@@ -382,6 +382,11 @@ export function createSpektralRuntimeLoop(
 		const nextUniformKeys: string[] = [];
 		const nextUniformTypes = new Map<string, UniformType>();
 		for (const entry of layoutEntries) {
+			// Overrides were validated against the previous layout. Discard them
+			// when their type changes before they reach the unchecked GPU packer.
+			if (uniformTypes.get(entry.name) !== entry.type) {
+				delete runtimeUniforms[entry.name];
+			}
 			nextUniformKeys.push(entry.name);
 			nextUniformTypes.set(entry.name, entry.type);
 		}
