@@ -9,6 +9,7 @@ vi.mock('../../lib/core/renderer', () => ({ createRenderer: createRendererMock }
 import { createSpektralRuntimeLoop } from '../../lib/core/runtime-loop';
 
 let queue: FrameRequestCallback[] = [];
+let resized: ResizeObserverCallback;
 const loops: ReturnType<typeof createSpektralRuntimeLoop>[] = [];
 async function tick(timestamp = 16): Promise<void> {
 	const callback = queue.shift();
@@ -67,10 +68,57 @@ beforeEach(() => {
 	vi.stubGlobal(
 		'ResizeObserver',
 		class {
+			constructor(callback: ResizeObserverCallback) {
+				resized = callback;
+			}
 			observe() {}
 			disconnect() {}
 		}
 	);
+});
+
+function resize(width: number, height: number, contentBox: boolean): void {
+	resized(
+		[
+			{
+				...(contentBox ? { contentBoxSize: [{ inlineSize: width, blockSize: height }] } : {}),
+				contentRect: { width, height }
+			} as unknown as ResizeObserverEntry
+		],
+		{} as ResizeObserver
+	);
+}
+
+it.each([true, false])(
+	'redraws changed on-demand dimensions (contentBox=%s)',
+	async (contentBox) => {
+		const { render } = setup();
+		await settle();
+		resize(64, 64, contentBox);
+		await tick(64);
+		expect(render).toHaveBeenCalledTimes(1);
+		resize(128, 96, contentBox);
+		await tick(80);
+		expect(render).toHaveBeenCalledTimes(2);
+		expect(render.mock.lastCall?.[0].canvasSize).toEqual({ width: 128, height: 96 });
+		resize(128, 96, contentBox);
+		await tick(96);
+		expect(render).toHaveBeenCalledTimes(2);
+		expect(queue).toHaveLength(0);
+	}
+);
+
+it('keeps resized manual canvases waiting for advance', async () => {
+	const { loop, render } = setup('manual');
+	await tick(16);
+	await tick(32);
+	resize(128, 96, true);
+	await tick(48);
+	expect(render).not.toHaveBeenCalled();
+	loop.advance();
+	await tick(64);
+	expect(render).toHaveBeenCalledTimes(1);
+	expect(render.mock.lastCall?.[0].canvasSize).toEqual({ width: 128, height: 96 });
 });
 afterEach(() => {
 	for (const loop of loops.splice(0)) loop.destroy();

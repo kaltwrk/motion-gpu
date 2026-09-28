@@ -12,6 +12,7 @@ description: All notable changes to Spektral will be documented in this file. Th
 - Fixed fragment feedback passes reading the canvas resolution instead of their own texture dimensions when commands share a submission.
 - Fixed default SDR postprocessing applying sRGB encoding before filters. Intermediate colors now stay linear and output encoding runs once during final presentation, including when passes are toggled.
 - Fixed on-demand scheduling stopping active frame tasks when no GPU frame was needed. Starting or registering tasks now wakes the loop, dynamic predicates and invalidation tokens keep updating, and the loop sleeps once its work stops.
+- Fixed on-demand canvases keeping stale content after a CSS resize. Changed dimensions invalidate the frame; repeated size notifications do not render again, and manual mode still waits for `advance()`.
 
 ## [0.17.1] - 2026-09-27
 

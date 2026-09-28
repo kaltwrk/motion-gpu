@@ -647,6 +647,7 @@ export function createSpektralRuntimeLoop(
 			currentCssWidth = width;
 			currentCssHeight = height;
 			size.set({ width, height });
+			registry.invalidate();
 		}
 
 		try {
