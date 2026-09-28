@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Fixed fragment feedback passes reading the canvas resolution instead of their own texture dimensions when commands share a submission.
 - Fixed default SDR postprocessing applying sRGB encoding before filters. Intermediate colors now stay linear and output encoding runs once during final presentation, including when passes are toggled.
+- Fixed on-demand scheduling stopping active frame tasks when no GPU frame was needed. Starting or registering tasks now wakes the loop, dynamic predicates and invalidation tokens keep updating, and the loop sleeps once its work stops.
 
 ## [0.17.1] - 2026-09-27
 

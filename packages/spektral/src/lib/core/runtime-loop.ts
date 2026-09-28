@@ -8,7 +8,7 @@ import {
 import { createRenderer } from './renderer.js';
 import { buildRendererPipelineSignature } from './recompile-policy.js';
 import { assertUniformValueForType } from './uniforms.js';
-import type { FrameRegistry } from './frame-registry.js';
+import { getFrameScheduling, type FrameRegistry } from './frame-registry.js';
 import type {
 	AnyPass,
 	ColorPipelineOptions,
@@ -93,6 +93,7 @@ export function createSpektralRuntimeLoop(
 	options: SpektralRuntimeLoopOptions
 ): SpektralRuntimeLoop {
 	const { canvas: canvasElement, registry, size } = options;
+	const frameScheduling = getFrameScheduling(registry);
 	let frameId: number | null = null;
 	let retryTimerId: ReturnType<typeof setTimeout> | null = null;
 	let renderer: Renderer | null = null;
@@ -666,7 +667,8 @@ export function createSpektralRuntimeLoop(
 			const shouldRenderFrame = registry.shouldRender();
 			shouldContinueAfterFrame =
 				registry.getRenderMode() === 'always' ||
-				(registry.getRenderMode() === 'on-demand' && shouldRenderFrame);
+				(registry.getRenderMode() === 'on-demand' &&
+					(shouldRenderFrame || frameScheduling?.hasWork() === true));
 
 			if (shouldRenderFrame) {
 				for (const key of uniformKeys) {
@@ -728,6 +730,10 @@ export function createSpektralRuntimeLoop(
 		}
 	};
 
+	const unsubscribeScheduling = frameScheduling?.subscribe(() => {
+		if (registry.getRenderMode() !== 'manual') scheduleFrame();
+	});
+
 	void (async () => {
 		try {
 			const materialDeclaration = options.getMaterial();
@@ -749,6 +755,7 @@ export function createSpektralRuntimeLoop(
 		advance,
 		destroy: () => {
 			isDisposed = true;
+			unsubscribeScheduling?.();
 			resizeObserver?.disconnect();
 			resizeObserver = null;
 			if (frameId !== null) {
