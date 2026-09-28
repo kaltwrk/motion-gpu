@@ -6,7 +6,7 @@ import { createRenderer } from '../../lib/core/renderer';
 import { BlitPass } from '../../lib/passes';
 import { resolveUniformLayout } from '../../lib/core/uniforms';
 import { createSpektralGraphBridge } from '../../lib/core/render-graph-reader';
-import type { RenderPass, RenderTargetDefinitionMap } from '../../lib/core/types';
+import type { AnyPass, RenderPass, RenderTargetDefinitionMap } from '../../lib/core/types';
 
 type MockTexture = {
 	descriptor: GPUTextureDescriptor;
@@ -3531,6 +3531,69 @@ describe('createRenderer', () => {
 		expect(secondCode).toContain('var latestSim: texture_2d');
 		renderer.destroy();
 	});
+
+	it.each([false, true])(
+		'detaches only the removed compute pair that owns the published view (other owner: %s)',
+		async (otherOwner) => {
+			const runtime = createWebGpuRuntime();
+			const { PingPongComputePass } = await import('../../lib/passes/PingPongComputePass');
+			const makePass = () =>
+				new PingPongComputePass({
+					compute:
+						'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {}',
+					resources: {
+						previous: { texture: 'sim', access: 'sampled', pingPong: 'read' },
+						next: { texture: 'sim', access: 'storage-write', pingPong: 'write' }
+					}
+				});
+			const removed = makePass();
+			const retained = makePass();
+			const passes: AnyPass[] = [removed];
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: { storage: true, format: 'rgba8unorm', width: 8, height: 8 } },
+				getPasses: () => passes
+			});
+			const draw = () =>
+				renderer.render({
+					time: 0,
+					delta: 0.016,
+					renderMode: 'manual',
+					uniforms: {},
+					textures: {}
+				});
+			const storageTextures = () =>
+				runtime.textures.filter(
+					(texture) => (texture.descriptor.usage & GPUTextureUsage.STORAGE_BINDING) !== 0
+				);
+			draw();
+			const [owned, removedA, removedB] = storageTextures();
+			if (otherOwner) {
+				removed.enabled = false;
+				passes.push(retained);
+				draw();
+				retained.enabled = false;
+			}
+			passes.splice(0, 1);
+			draw();
+			const expectedView = (otherOwner ? storageTextures().at(-1) : owned)?.createView.mock
+				.results[0]?.value;
+			const sceneGroups = runtime.device.createBindGroup.mock.calls
+				.map((call) => call[0] as GPUBindGroupDescriptor)
+				.filter((descriptor) => Array.from(descriptor.entries).length === 4);
+			expect(expectedView).toBeDefined();
+			expect(
+				Array.from(sceneGroups.at(-1)!.entries).find((entry) => entry.binding === 3)?.resource
+			).toBe(expectedView);
+			expect(removedA?.destroy).toHaveBeenCalledTimes(1);
+			expect(removedB?.destroy).toHaveBeenCalledTimes(1);
+			expect(owned?.destroy).not.toHaveBeenCalled();
+			renderer.destroy();
+			expect(removedA?.destroy).toHaveBeenCalledTimes(1);
+			expect(removedB?.destroy).toHaveBeenCalledTimes(1);
+		}
+	);
 
 	it('destroys ping-pong texture pairs during renderer.destroy()', async () => {
 		const runtime = createWebGpuRuntime();

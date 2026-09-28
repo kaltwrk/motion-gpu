@@ -2008,14 +2008,25 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			}
 		};
 
-		const syncPingPongComputeTextureLifecycle = (passes: AnyPass[]): void => {
+		const syncPingPongComputeTextureLifecycle = (passes: AnyPass[]): boolean => {
 			const activeComputePasses = new Set(passes.filter(isManagedComputePass));
+			let fragmentBindingsChanged = false;
 			for (const [pass, pair] of pingPongTexturePairs.entries()) {
 				if (activeComputePasses.has(pass)) continue;
+				const resource = resourceRegistry.requireTexture(pair.logicalId);
+				// Another pass may already own the published result for this slot.
+				// Detach only views belonging to the allocation being released.
+				if (resource.publishedView === pair.viewA || resource.publishedView === pair.viewB) {
+					resourceRegistry.publishTextureView(pair.logicalId, resource.sampledView);
+					if (textureBindingByKey.get(pair.logicalId)?.fragmentVisible) {
+						fragmentBindingsChanged = true;
+					}
+				}
 				pair.textureA.destroy();
 				pair.textureB.destroy();
 				pingPongTexturePairs.delete(pass);
 			}
+			return fragmentBindingsChanged;
 		};
 
 		/**
@@ -2328,7 +2339,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			generateDirtyTextureMipmaps(commandEncoder);
 			const clearColor = options.getClearColor();
 			syncPassLifecycle(passes, width, height);
-			syncPingPongComputeTextureLifecycle(passes);
+			if (syncPingPongComputeTextureLifecycle(passes)) bindGroupDirty = true;
 			syncPingPongShaderTextureLifecycle(passes);
 			const runtimeTargets = syncRenderTargets(width, height);
 			const framePasses = resolveFramePasses(passes);

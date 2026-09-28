@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fixed explicit `null` texture values restoring the material's default source instead of clearing the texture. Clearing now releases the upload and binds the fallback; an omitted value still selects the default source.
 - Fixed runtime texture `colorSpace` overrides being ignored by automatic format selection. Changes now reallocate the texture with the correct decode format, while explicit formats retain precedence and have distinct material cache signatures.
 - Fixed stale runtime uniform overrides surviving material changes to a different uniform type. Incompatible overrides now reset to the new material default before packing, while overrides for unchanged types remain intact.
+- Fixed removing a `PingPongComputePass` leaving consumers bound to destroyed textures. Removal now restores the material allocation for scene and compute readers without replacing another pass's published result.
 
 ## [0.17.1] - 2026-09-27
 
