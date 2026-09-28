@@ -27,6 +27,7 @@ import {
 	toComputeSampledFallbackClass
 } from './compute-fallback-textures.js';
 import { MaterialResourceRegistry, type RuntimeTextureResource } from './resource-registry.js';
+import { selectFeedbackOwner } from './pass-brand.js';
 import { normalizeStorageBufferDefinition } from './storage-buffers.js';
 import {
 	isManagedComputePass,
@@ -2627,6 +2628,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				});
 				const pipelineEntry = buildPingPongShaderPipelineEntry(feedbackPass, pair.format, target);
 				const feedbackBindGroup = createPingPongShaderBindGroup(pipelineEntry, pair.frameBuffer);
+				feedbackPass[selectFeedbackOwner](pair);
 				const resetColor = feedbackPass.consumeResetColor();
 				const initializationColor =
 					resetColor ?? (pair.needsClear ? feedbackPass.getClearColor() : null);

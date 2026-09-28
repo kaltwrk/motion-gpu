@@ -3714,6 +3714,65 @@ describe('createRenderer', () => {
 		}
 	});
 
+	it('tracks shared shader feedback output and reset separately for each texture owner', async () => {
+		const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+		const pass = new PingPongShaderPass({
+			target: 'sim',
+			width: 8,
+			height: 8,
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return textureLoad(spektralPrevious, vec2i(0), 0); }'
+		});
+		const create = async () => {
+			const runtime = createWebGpuRuntime();
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: { colorSpace: 'linear' } },
+				passes: [pass]
+			});
+			return {
+				runtime,
+				renderer,
+				draw: () =>
+					renderer.render({
+						time: 0,
+						delta: 0.016,
+						renderMode: 'manual',
+						uniforms: {},
+						textures: {}
+					})
+			};
+		};
+		const first = await create();
+		const second = await create();
+		first.draw();
+		expect(pass.getCurrentOutput()).toBe('simB');
+		second.draw();
+		expect(pass.getCurrentOutput()).toBe('simB');
+		pass.reset([0.25, 0, 0, 1]);
+		first.draw();
+		first.draw();
+		expect(pass.getCurrentOutput()).toBe('simA');
+		second.draw();
+		expect(pass.getCurrentOutput()).toBe('simB');
+		for (const { runtime } of [first, second]) {
+			const resets = runtime.commandEncoders
+				.flatMap((encoder) => encoder.beginRenderPass.mock.calls)
+				.map((call) => call[0] as GPURenderPassDescriptor)
+				.filter((descriptor) =>
+					Array.from(descriptor.colorAttachments).some(
+						(attachment) =>
+							attachment?.loadOp === 'clear' && (attachment.clearValue as GPUColorDict)?.r === 0.25
+					)
+				);
+			expect(resets).toHaveLength(2);
+		}
+		first.renderer.destroy();
+		second.draw();
+		expect(pass.getCurrentOutput()).toBe('simA');
+		second.renderer.destroy();
+	});
+
 	it('renders ping-pong shader iterations before scene and exposes output as material texture', async () => {
 		const runtime = createWebGpuRuntime();
 		const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');

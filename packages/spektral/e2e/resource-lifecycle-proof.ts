@@ -3,6 +3,7 @@ import { createRenderer } from '../src/lib/core/renderer';
 import type { AnyPass, TextureMap } from '../src/lib/core/types';
 import { ComputePass } from '../src/lib/passes/ComputePass';
 import { PingPongComputePass } from '../src/lib/passes/PingPongComputePass';
+import { PingPongShaderPass } from '../src/lib/passes/PingPongShaderPass';
 
 async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
 	const canvas = document.createElement('canvas');
@@ -119,5 +120,44 @@ export async function readComputeRemoval(
 		return pixels;
 	} finally {
 		proof.renderer.destroy();
+	}
+}
+
+export async function readSharedFeedback() {
+	const pass = new PingPongShaderPass({
+		target: 'sim',
+		width: 2,
+		height: 2,
+		fragment: `fn frag(uv: vec2f) -> vec4f {
+			return vec4f(textureLoad(spektralPrevious, vec2i(0), 0).r + 0.125, 0.0, 0.0, 1.0);
+		}`
+	});
+	const material = defineMaterial({
+		fragment: 'fn frag(uv: vec2f) -> vec4f { return textureLoad(sim, vec2i(0), 0); }',
+		textures: { sim: { colorSpace: 'linear' } }
+	});
+	let first = await createProofRenderer(material, [pass]);
+	let second: Awaited<ReturnType<typeof createProofRenderer>> | undefined;
+	try {
+		second = await createProofRenderer(material, [pass]);
+		const accumulated: number[][] = [];
+		for (let i = 0; i < 3; i += 1)
+			accumulated.push([(await first.draw())[0]!, (await second.draw())[0]!]);
+		pass.reset([0.25, 0, 0, 1]);
+		const reset = [(await first.draw())[0]!, (await first.draw())[0]!, (await second.draw())[0]!];
+		const lastOutput = pass.getCurrentOutput();
+		pass.setIterations(2);
+		const even = [(await first.draw())[0]!, (await second.draw())[0]!];
+		pass.setIterations(1);
+		pass.setDimensions(4, 4);
+		const resized = [(await first.draw())[0]!, (await second.draw())[0]!];
+		first.renderer.destroy();
+		const afterDispose = (await second.draw())[0]!;
+		first = await createProofRenderer(material, [pass]);
+		const recreated = [(await first.draw())[0]!, (await second.draw())[0]!];
+		return { accumulated, reset, lastOutput, even, resized, afterDispose, recreated };
+	} finally {
+		first.renderer.destroy();
+		second?.renderer.destroy();
 	}
 }

@@ -1,4 +1,4 @@
-import { managedPassBrand } from '../../lib/core/pass-brand.js';
+import { managedPassBrand, selectFeedbackOwner } from '../../lib/core/pass-brand.js';
 import {
 	computePassStaticTopology,
 	createComputePassStaticTopology
@@ -43,6 +43,7 @@ export function createManagedFeedbackPass(
 ): PingPongShaderPassLike {
 	return {
 		[managedPassBrand]: 'feedback',
+		[selectFeedbackOwner]: () => {},
 		isPingPongShader: true,
 		enabled: true,
 		dispose: () => {},

@@ -191,6 +191,10 @@ dispose(): void
 point. `setDimensions`, `setScale`, and `reset` request A/B reinitialization;
 `consumeResetColor` is renderer-facing and clears that pending request.
 
+When a pass instance is shared by multiple canvases, each renderer's texture pair has independent
+iteration and reset state. `reset()` applies to every pair on its next render.
+`getCurrentOutput()` reports the A/B key for the most recently rendered pair.
+
 Custom `RenderPass` objects may also expose a readonly `label?: string`. Spektral uses the same
 labeling rule for built-in and custom passes.
 

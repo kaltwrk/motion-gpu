@@ -10,6 +10,47 @@ test.beforeEach(async ({ page }) => {
 	await page.goto('/resource-lifecycle-proof');
 });
 
+test('shared shader feedback isolates parity, reset, resize and renderer disposal', async ({
+	page
+}) => {
+	const result = await page.evaluate(async (url) => {
+		const proof: typeof import('../resource-lifecycle-proof') = await import(
+			/* @vite-ignore */ url
+		);
+		return proof.readSharedFeedback();
+	}, proofUrl);
+	const expected = {
+		accumulated: [
+			[32, 32],
+			[64, 64],
+			[96, 96]
+		],
+		reset: [96, 128, 96],
+		lastOutput: 'simB',
+		even: [191, 159],
+		resized: [96, 96],
+		afterDispose: 128,
+		recreated: [96, 159]
+	};
+	// rgba16float feedback quantization can differ by one output byte across GPU backends.
+	expect(result.lastOutput).toBe(expected.lastOutput);
+	for (const key of [
+		'accumulated',
+		'reset',
+		'even',
+		'resized',
+		'afterDispose',
+		'recreated'
+	] as const) {
+		const actual = [result[key]].flat(2);
+		const values = [expected[key]].flat(2);
+		expect(actual).toHaveLength(values.length);
+		actual.forEach((value, index) =>
+			expect(Math.abs(value - values[index]!)).toBeLessThanOrEqual(1)
+		);
+	}
+});
+
 for (const action of ['remove', 'replace', 'remount', 'disable', 'switch-writer'] as const) {
 	test(`compute ping-pong ${action} keeps scene and downstream views valid`, async ({ page }) => {
 		const pixels = await page.evaluate(
