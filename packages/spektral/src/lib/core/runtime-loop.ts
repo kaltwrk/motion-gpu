@@ -742,6 +742,8 @@ export function createSpektralRuntimeLoop(
 			if (shouldRenderFrame || !errorNeedsSuccessfulRender) maybeClearError(timestamp);
 		} catch (error) {
 			setError(error, 'render', timestamp, tasksCompleted);
+			// Task failures occur before the normal continuation decision.
+			shouldContinueAfterFrame ||= registry.getRenderMode() === 'always';
 			if (renderer && shouldRecreateRendererAfterError(error)) {
 				renderer.destroy();
 				renderer = null;

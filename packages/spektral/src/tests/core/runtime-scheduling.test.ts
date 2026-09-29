@@ -52,6 +52,21 @@ async function settle(): Promise<void> {
 	await tick(32);
 	await tick(48);
 }
+it('keeps always rendering after a transient task failure', async () => {
+	const { registry, render } = setup('always');
+	const callback = vi.fn().mockImplementationOnce(() => {
+		throw new Error('Transient task failure');
+	});
+	registry.register('transient', callback);
+	await tick(16);
+	await tick(32);
+	expect(callback).toHaveBeenCalledTimes(1);
+	expect(render).not.toHaveBeenCalled();
+	expect(queue).toHaveLength(1);
+	await tick(48);
+	expect(callback).toHaveBeenCalledTimes(2);
+	expect(render).toHaveBeenCalledTimes(1);
+});
 beforeEach(() => {
 	queue = [];
 	createRendererMock.mockReset();
