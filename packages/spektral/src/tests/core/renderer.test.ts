@@ -1755,6 +1755,70 @@ describe('createRenderer', () => {
 		expect(attachment?.clearValue).toEqual({ r: 0.25, g: 0, b: 0, a: 0.25 });
 	});
 
+	it.each([false, true])(
+		'allocates two postprocessing surfaces and releases unused surfaces (HDR=%s)',
+		async (hdr) => {
+			const runtime = createWebGpuRuntime();
+			const { ShaderPass } = await import('../../lib/passes/ShaderPass');
+			const pass = new ShaderPass({
+				fragment: 'fn shade(inputColor: vec4f, uv: vec2f) -> vec4f { return inputColor; }'
+			});
+			let passes: AnyPass[] = [pass];
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				getPasses: () => passes,
+				...(hdr ? { color: { toneMapping: 'aces-hill' as const } } : {})
+			});
+			const allocated = () =>
+				runtime.textures.filter((texture) => {
+					const size = texture.descriptor.size as GPUExtent3DDict;
+					return (
+						size.width === 10 &&
+						((texture.descriptor.usage as number) & GPUTextureUsage.TEXTURE_BINDING) !== 0
+					);
+				});
+			renderFrame(renderer);
+			const surfaces = allocated();
+			expect(surfaces).toHaveLength(2);
+			renderFrame(renderer);
+			expect(allocated()).toHaveLength(2);
+			passes = [];
+			renderFrame(renderer);
+			for (const surface of surfaces) expect(surface.destroy).toHaveBeenCalledTimes(1);
+			expect(allocated().filter((surface) => surface.destroy.mock.calls.length === 0)).toHaveLength(
+				hdr ? 1 : 0
+			);
+			renderer.destroy();
+			for (const surface of allocated()) expect(surface.destroy).toHaveBeenCalledTimes(1);
+		}
+	);
+
+	it('allocates the custom pass canvas surface only when accessed and releases it when unused', async () => {
+		const runtime = createWebGpuRuntime();
+		let useCanvas = true;
+		let canvasTexture: GPUTexture | undefined;
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			passes: [
+				{
+					needsSwap: false,
+					render(context) {
+						if (useCanvas) canvasTexture = context.canvas.texture;
+					}
+				}
+			]
+		});
+		renderFrame(renderer);
+		const allocated = runtime.textures.find((texture) => (texture as unknown) === canvasTexture);
+		expect(allocated).toBeDefined();
+		expect(allocated!.destroy).not.toHaveBeenCalled();
+		useCanvas = false;
+		renderFrame(renderer);
+		expect(allocated!.destroy).toHaveBeenCalledTimes(1);
+		renderer.destroy();
+		expect(allocated!.destroy).toHaveBeenCalledTimes(1);
+	});
+
 	it('blits final source slot to canvas when pass graph ends offscreen', async () => {
 		const runtime = createWebGpuRuntime();
 		const pass: RenderPass = {

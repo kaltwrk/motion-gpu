@@ -128,7 +128,9 @@ export function executePostSceneRenderGraph(input: {
 				commandEncoder: input.commandEncoder,
 				source,
 				target,
-				canvas: input.slots.canvas,
+				get canvas() {
+					return input.slots!.canvas;
+				},
 				input: resolveStepSurface(step.input),
 				output,
 				targets: input.runtimeTargets,

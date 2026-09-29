@@ -1748,6 +1748,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		let sourceSlotTarget: RuntimeRenderTarget | null = null;
 		let targetSlotTarget: RuntimeRenderTarget | null = null;
 		let presentationSlotTarget: RuntimeRenderTarget | null = null;
+		let presentationTargetUsed = false;
 		let renderTargetSignature = '';
 		let renderTargetSnapshot: Readonly<Record<string, RenderTarget>> = {};
 		let renderTargetFormatSnapshot: RenderTargetFormatMap = {};
@@ -1795,9 +1796,10 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		const frameSlots = {
 			source: null as unknown as RuntimeRenderTarget,
 			target: null as unknown as RuntimeRenderTarget,
-			canvas: canvasSurface
+			get canvas(): RenderTarget {
+				return ensurePresentationTarget(canvasSurface.width, canvasSurface.height);
+			}
 		};
-		let frameSlotsActive = false;
 
 		/**
 		 * Resolves active render pass list for current frame.
@@ -2053,6 +2055,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		};
 
 		const ensurePresentationTarget = (width: number, height: number): RuntimeRenderTarget => {
+			presentationTargetUsed = true;
 			if (
 				presentationSlotTarget &&
 				presentationSlotTarget.width === width &&
@@ -2446,19 +2449,16 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 
 				const presentationRequired = colorPipeline.requiresPresentationPass;
 				const graphHasRenderSteps = graphPlan.renderSteps.length > 0;
+				presentationTargetUsed = false;
 				const presentationSurface =
-					presentationRequired || graphHasRenderSteps
+					presentationRequired && !graphHasRenderSteps
 						? ensurePresentationTarget(width, height)
 						: null;
 				if (graphHasRenderSteps) {
 					frameSlots.source = ensureSlotTarget('source', width, height);
 					frameSlots.target = ensureSlotTarget('target', width, height);
-					frameSlots.canvas = presentationSurface!;
-					frameSlotsActive = true;
-				} else {
-					frameSlotsActive = false;
 				}
-				const slots = frameSlotsActive ? frameSlots : null;
+				const slots = graphHasRenderSteps ? frameSlots : null;
 				const sceneOutput = slots ? slots.source : (presentationSurface ?? canvasSurface);
 
 				const clearFeedbackView = (
@@ -2766,6 +2766,17 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				});
 
 				device.queue.submit([commandEncoder.finish()]);
+				// Release intermediates only after the current command buffer is submitted.
+				if (!graphHasRenderSteps) {
+					destroyRenderTexture(sourceSlotTarget);
+					destroyRenderTexture(targetSlotTarget);
+					sourceSlotTarget = targetSlotTarget = null;
+					frameSlots.source = frameSlots.target = canvasSurface;
+				}
+				if (!presentationTargetUsed) {
+					destroyRenderTexture(presentationSlotTarget);
+					presentationSlotTarget = null;
+				}
 			} catch (error) {
 				frameState.rollback();
 				bindGroup = committedBindGroup;

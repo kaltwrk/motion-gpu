@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Performance
+
+- Removed the unused presentation texture from ordinary postprocessing chains. The canvas intermediate is now allocated on demand, and unused intermediate textures are released after submission when the graph changes.
+
 ### Fixed
 
 - Fixed fragment-feedback pipeline caches retaining every shader edit until renderer disposal. Unused variants now follow a bounded LRU policy while active feedback pipelines remain cached.
