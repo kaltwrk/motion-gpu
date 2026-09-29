@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed fragment-feedback pipeline caches retaining every shader edit until renderer disposal. Unused variants now follow a bounded LRU policy while active feedback pipelines remain cached.
+
 - Fixed compute pipeline cache thrashing when a graph uses more than 32 distinct pipelines. Active pass pipelines are now retained while inactive history stays bounded; late validation from an evicted pipeline cannot overwrite its replacement.
 
 - Fixed cached compute resource plans bypassing frame-wide external identity and metadata validation. Cache hits now replay validated registrations without rebuilding descriptors or calling providers more than once per frame.

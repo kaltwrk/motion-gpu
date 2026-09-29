@@ -1163,7 +1163,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			previousBindGroupLayout: GPUBindGroupLayout;
 			textureKeys: string[];
 		}
-		const pingPongShaderPipelineCache = new Map<string, PingPongShaderPipelineEntry>();
+		const pingPongShaderPipelineCache = new ActivePipelineCache<PingPongShaderPipelineEntry>(32);
 
 		const getFragmentTextureBindingsForKeys = (keys: string[]): RuntimeTextureBinding[] =>
 			keys.map((key, index) => {
@@ -1215,7 +1215,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				options.uniformLayout.entries.map((entry) => `${entry.name}:${entry.type}`).join(','),
 				fragment
 			].join('|');
-			const cached = pingPongShaderPipelineCache.get(cacheKey);
+			const cached = pingPongShaderPipelineCache.use(pass, cacheKey);
 			if (cached) {
 				return cached;
 			}
@@ -2338,6 +2338,9 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				syncPassLifecycle(passes, width, height);
 				computePipelineCache.retainOwners(
 					passes.filter((pass) => pass.enabled !== false && isManagedComputePass(pass))
+				);
+				pingPongShaderPipelineCache.retainOwners(
+					passes.filter((pass) => pass.enabled !== false && isManagedFeedbackPass(pass))
 				);
 				if (syncPingPongComputeTextureLifecycle(passes)) bindGroupDirty = true;
 				syncPingPongShaderTextureLifecycle(passes);

@@ -3930,6 +3930,33 @@ describe('createRenderer', () => {
 		}
 	);
 
+	it('bounds feedback shader history while retaining active pipelines', async () => {
+		const runtime = createWebGpuRuntime();
+		const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+		const source = (index: number) => `fn frag(uv: vec2f) -> vec4f { return vec4f(${index}.0); }`;
+		const stable = new PingPongShaderPass({ target: 'stable', fragment: source(0) });
+		const edited = new PingPongShaderPass({ target: 'edited', fragment: source(0) });
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['stable', 'edited'],
+			textureDefinitions: { stable: {}, edited: {} },
+			passes: [stable, edited]
+		});
+		renderFrame(renderer);
+		const initialCount = runtime.device.createRenderPipeline.mock.calls.length;
+		for (let index = 1; index <= 40; index += 1) {
+			edited.setFragment(source(index));
+			renderFrame(renderer);
+		}
+		expect(runtime.device.createRenderPipeline).toHaveBeenCalledTimes(initialCount + 40);
+		edited.setFragment(source(0));
+		renderFrame(renderer);
+		expect(runtime.device.createRenderPipeline).toHaveBeenCalledTimes(initialCount + 41);
+		renderFrame(renderer);
+		expect(runtime.device.createRenderPipeline).toHaveBeenCalledTimes(initialCount + 41);
+		renderer.destroy();
+	});
+
 	it('tracks shared shader feedback output and reset separately for each texture owner', async () => {
 		const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
 		const pass = new PingPongShaderPass({
