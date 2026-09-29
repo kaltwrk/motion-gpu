@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { type CurrentReadable } from '../core/current-value.js';
 import { createTextureLoadController } from '../core/texture-load-controller.js';
 import { type LoadedTexture, type TextureLoadOptions } from '../core/texture-loader.js';
@@ -50,8 +50,10 @@ export function useTexture(
 	const urlInputRef = useRef(urlInput);
 	const controllerRef = useRef<ReturnType<typeof createTextureLoadController> | null>(null);
 
-	optionsRef.current = options;
-	urlInputRef.current = urlInput;
+	useLayoutEffect(() => {
+		optionsRef.current = options;
+		urlInputRef.current = urlInput;
+	}, [options, urlInput]);
 	controllerRef.current ??= createTextureLoadController({
 		getUrls: () => {
 			const input = urlInputRef.current;
