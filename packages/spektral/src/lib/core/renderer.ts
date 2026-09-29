@@ -1,3 +1,4 @@
+import { ActivePipelineCache } from './renderer/pipeline-cache.js';
 import { FrameStateTransaction } from './renderer/frame-state.js';
 import { buildRenderTargetSignature, resolveRenderTargetDefinitions } from './render-targets.js';
 import {
@@ -957,7 +958,9 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			| { kind: 'ready'; entry: ComputePipelineEntry }
 			| { kind: 'error'; error: Error };
 		const MAX_COMPUTE_PIPELINE_CACHE_ENTRIES = 32;
-		const computePipelineCache = new Map<string, ComputePipelineCacheState>();
+		const computePipelineCache = new ActivePipelineCache<ComputePipelineCacheState>(
+			MAX_COMPUTE_PIPELINE_CACHE_ENTRIES
+		);
 		let nextComputePipelineLabelIndex = 0;
 		const computeResourceLimits = getComputeResourceResolverLimits(device);
 		const computeResourceResolutionCache = createComputePassResourceResolutionCache();
@@ -970,31 +973,6 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		].join(',');
 
 		const requestRender = options.requestRender;
-
-		const setComputePipelineCacheState = (
-			cacheKey: string,
-			state: ComputePipelineCacheState
-		): void => {
-			if (computePipelineCache.has(cacheKey)) {
-				computePipelineCache.delete(cacheKey);
-			}
-			computePipelineCache.set(cacheKey, state);
-			while (computePipelineCache.size > MAX_COMPUTE_PIPELINE_CACHE_ENTRIES) {
-				const oldestKey = computePipelineCache.keys().next().value;
-				if (oldestKey === undefined) {
-					break;
-				}
-				computePipelineCache.delete(oldestKey);
-			}
-		};
-
-		const touchComputePipelineCacheState = (
-			cacheKey: string,
-			state: ComputePipelineCacheState
-		): void => {
-			computePipelineCache.delete(cacheKey);
-			computePipelineCache.set(cacheKey, state);
-		};
 
 		const computeBuildResult = (
 			cacheKey: string,
@@ -1126,12 +1104,12 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				// us (defensive — the cache is keyed by source so this should
 				// be a no-op in practice, but it guards against in-flight
 				// stragglers when the user edits the same source rapidly).
-				const current = computePipelineCache.get(cacheKey);
-				if (!current || current.kind !== 'pending') {
+				const current = computePipelineCache.peek(cacheKey);
+				if (!current || current.kind !== 'pending' || current.entry !== entry) {
 					return;
 				}
 				if (compilationError) {
-					setComputePipelineCacheState(cacheKey, {
+					computePipelineCache.set(cacheKey, {
 						kind: 'error',
 						error: compilationError
 					});
@@ -1142,22 +1120,24 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					uncapturedErrorMessages.length = 0;
 					requestRender?.();
 				} else {
-					setComputePipelineCacheState(cacheKey, { kind: 'ready', entry });
+					computePipelineCache.set(cacheKey, { kind: 'ready', entry });
 				}
 			})();
 
 			return { kind: 'pending', entry, validation };
 		};
 
-		const buildComputePipelineEntry = (buildOptions: {
-			computeSource: string;
-			workgroupSize: [number, number, number];
-			resources: ResolvedComputePassResources;
-		}): ComputePipelineEntry => {
+		const buildComputePipelineEntry = (
+			pass: ComputePassLike,
+			buildOptions: {
+				computeSource: string;
+				workgroupSize: [number, number, number];
+				resources: ResolvedComputePassResources;
+			}
+		): ComputePipelineEntry => {
 			const cacheKey = `compute:${computeUniformTopologyKey}:${buildOptions.resources.topologyKey}:${computeDeviceCapabilityKey}:${buildOptions.workgroupSize.join(',')}:${buildOptions.computeSource}`;
-			const cached = computePipelineCache.get(cacheKey);
+			const cached = computePipelineCache.use(pass, cacheKey);
 			if (cached) {
-				touchComputePipelineCacheState(cacheKey, cached);
 				if (cached.kind === 'error') {
 					// Drain any derivative cascade messages that may have
 					// arrived between frames so consumeUncapturedErrorMessage
@@ -1169,7 +1149,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			}
 
 			const state = computeBuildResult(cacheKey, buildOptions);
-			setComputePipelineCacheState(cacheKey, state);
+			computePipelineCache.set(cacheKey, state);
 			if (state.kind === 'error') {
 				uncapturedErrorMessages.length = 0;
 				throw state.error;
@@ -2356,6 +2336,9 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				generateDirtyTextureMipmaps(commandEncoder, frameState);
 				const clearColor = options.getClearColor();
 				syncPassLifecycle(passes, width, height);
+				computePipelineCache.retainOwners(
+					passes.filter((pass) => pass.enabled !== false && isManagedComputePass(pass))
+				);
 				if (syncPingPongComputeTextureLifecycle(passes)) bindGroupDirty = true;
 				syncPingPongShaderTextureLifecycle(passes);
 				if (bindGroupDirty) {
@@ -2532,7 +2515,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 							frameState.capture(pingPongPair);
 						}
 						const workgroupSize = computePass.getWorkgroupSize();
-						const pipelineEntry = buildComputePipelineEntry({
+						const pipelineEntry = buildComputePipelineEntry(computePass, {
 							computeSource,
 							workgroupSize,
 							resources

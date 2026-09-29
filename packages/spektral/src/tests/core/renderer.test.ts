@@ -3075,6 +3075,61 @@ describe('createRenderer', () => {
 		renderer.destroy();
 	});
 
+	it.each([32, 33, 40])(
+		'retains all %s active compute pipelines across frames and source edits',
+		async (count) => {
+			const runtime = createWebGpuRuntime();
+			const { ComputePass } = await import('../../lib/passes/ComputePass');
+			const source = (index: number) =>
+				`@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) { let value = ${index}u; }`;
+			const passes = Array.from(
+				{ length: count },
+				(_, index) => new ComputePass({ compute: source(index) })
+			);
+			const renderer = await createRenderer({ ...baseOptions(runtime), passes });
+			renderFrame(renderer);
+			renderFrame(renderer); // validation is still pending
+			expect(runtime.device.createComputePipeline).toHaveBeenCalledTimes(count);
+			for (let index = 0; index < 8; index += 1) await Promise.resolve();
+			renderFrame(renderer);
+			expect(runtime.device.createComputePipeline).toHaveBeenCalledTimes(count);
+			passes[0]!.setCompute(source(count));
+			renderFrame(renderer);
+			renderFrame(renderer);
+			expect(runtime.device.createComputePipeline).toHaveBeenCalledTimes(count + 1);
+			renderer.destroy();
+		}
+	);
+
+	it('ignores validation from an evicted compute pipeline when the same source is rebuilt', async () => {
+		const runtime = createWebGpuRuntime();
+		const { ComputePass } = await import('../../lib/passes/ComputePass');
+		const source = (index: number) =>
+			`@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) { let value = ${index}u; }`;
+		const pass = new ComputePass({ compute: source(0) });
+		const renderer = await createRenderer({ ...baseOptions(runtime), passes: [pass] });
+		let rejectOld!: (error: GPUError | null) => void;
+		runtime.device.popErrorScope.mockImplementationOnce(
+			() =>
+				new Promise<GPUError | null>((resolve) => {
+					rejectOld = resolve;
+				})
+		);
+		renderFrame(renderer);
+		for (let index = 1; index <= 40; index += 1) {
+			pass.setCompute(source(index));
+			renderFrame(renderer);
+		}
+		pass.setCompute(source(0));
+		runtime.device.popErrorScope.mockImplementationOnce(() => new Promise(() => {}));
+		renderFrame(renderer);
+		rejectOld({ message: 'Obsolete validation failure' });
+		for (let index = 0; index < 12; index += 1) await Promise.resolve();
+		expect(() => renderFrame(renderer)).not.toThrow();
+		expect(runtime.device.createComputePipeline).toHaveBeenCalledTimes(42);
+		renderer.destroy();
+	});
+
 	it('keeps pass-local resource bind groups when two passes share one pipeline topology', async () => {
 		const runtime = createWebGpuRuntime();
 		const { ComputePass } = await import('../../lib/passes/ComputePass');
