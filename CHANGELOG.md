@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed cached compute resource plans bypassing frame-wide external identity and metadata validation. Cache hits now replay validated registrations without rebuilding descriptors or calling providers more than once per frame.
+
 - Fixed unfilterable fragment-feedback outputs reaching incompatible material bind groups. The renderer now reports the required material texture format before binding, preserves compatible float32 layouts, and publishes the actual feedback format and dimensions.
 
 - Fixed aborted GPU frames advancing feedback parity, consuming resets, and publishing unwritten results. Frame encoding now rolls back CPU resource state on failure and releases replaced uploads only after submission; mipmap work also remains pending until submitted.
