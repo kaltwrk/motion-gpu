@@ -274,3 +274,65 @@ export async function readAbortedFeedback(kind: 'fragment' | 'compute'): Promise
 		renderer.destroy();
 	}
 }
+
+export async function readFeedbackFormat(
+	matching: boolean
+): Promise<{ red: number | null; error: string | null; validation: string | null }> {
+	const canvas = document.createElement('canvas');
+	const material = resolveMaterial(
+		defineMaterial({
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return textureLoad(sim, vec2i(0), 0); }',
+			textures: { sim: matching ? { format: 'rgba32float' } : {} }
+		})
+	);
+	const renderer = await createRenderer({
+		canvas,
+		fragmentWgsl: material.fragmentWgsl,
+		fragmentSource: material.fragmentSource,
+		fragmentLineMap: [...material.fragmentLineMap],
+		includeSources: material.includeSources,
+		uniformLayout: material.uniformLayout,
+		textureKeys: [...material.textureKeys],
+		textureDefinitions: material.textures,
+		passes: [
+			new PingPongShaderPass({
+				target: 'sim',
+				format: 'rgba32float',
+				width: 4,
+				height: 4,
+				fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(0.25, 0.0, 0.0, 1.0); }'
+			})
+		],
+		getDpr: () => 1,
+		getClearColor: () => [0, 0, 0, 1],
+		color: { outputEncoding: 'linear' }
+	});
+	const device = renderer.getDevice!();
+	device.pushErrorScope('validation');
+	let error: string | null = null;
+	let red: number | null = null;
+	try {
+		try {
+			renderer.render({
+				time: 0,
+				delta: 0.016,
+				renderMode: 'manual',
+				uniforms: {},
+				textures: {},
+				canvasSize: { width: 4, height: 4 }
+			});
+		} catch (cause) {
+			error = String(cause);
+		}
+		const validation = (await device.popErrorScope())?.message ?? null;
+		if (!error && !validation) {
+			const output = document.createElement('canvas');
+			const context = output.getContext('2d')!;
+			context.drawImage(canvas, 0, 0);
+			red = context.getImageData(0, 0, 1, 1).data[0]!;
+		}
+		return { red, error, validation };
+	} finally {
+		renderer.destroy();
+	}
+}

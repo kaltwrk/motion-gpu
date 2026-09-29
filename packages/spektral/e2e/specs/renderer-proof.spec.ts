@@ -89,3 +89,22 @@ for (const kind of ['fragment', 'compute'] as const) {
 		expect(Math.abs(pixels[1]! - 51)).toBeLessThanOrEqual(1);
 	});
 }
+
+for (const matching of [false, true]) {
+	test(`float32 feedback validates material layout before GPU binding (matching=${matching})`, async ({
+		page
+	}) => {
+		const result = await page.evaluate(
+			async ({ url, matching }) => {
+				const proof: typeof import('../renderer-proof') = await import(/* @vite-ignore */ url);
+				return proof.readFeedbackFormat(matching);
+			},
+			{ url: proofUrl, matching }
+		);
+		expect(result.validation).toBeNull();
+		if (matching) {
+			expect(result.error).toBeNull();
+			expect(result.red).toBe(64);
+		} else expect(result.error).toMatch(/sim.*rgba32float.*material.*format/s);
+	});
+}

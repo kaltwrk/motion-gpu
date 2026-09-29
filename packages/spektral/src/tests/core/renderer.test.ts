@@ -3803,6 +3803,78 @@ describe('createRenderer', () => {
 		renderer.destroy();
 	});
 
+	it.each([false, true])(
+		'validates feedback against the material sampling layout (float32-filterable=%s)',
+		async (filterable) => {
+			const runtime = createWebGpuRuntime();
+			if (filterable) (runtime.device.features as unknown as Set<string>).add('float32-filterable');
+			const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+			const feedback = new PingPongShaderPass({
+				target: 'sim',
+				format: 'rgba32float',
+				fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+			});
+			let passes: AnyPass[] = [];
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: {} },
+				getPasses: () => passes
+			});
+			renderFrame(renderer);
+			passes = [feedback];
+			const submissions = runtime.device.queue.submit.mock.calls.length;
+			if (filterable) expect(() => renderFrame(renderer)).not.toThrow();
+			else {
+				expect(() => renderFrame(renderer)).toThrow(/sim.*rgba32float.*material.*format/s);
+				expect(runtime.device.queue.submit).toHaveBeenCalledTimes(submissions);
+			}
+			renderer.destroy();
+		}
+	);
+
+	it.each(['rgba32float', 'rgba16float'] as const)(
+		'publishes physical feedback metadata for %s and restores the material fallback on removal',
+		async (format) => {
+			const runtime = createWebGpuRuntime();
+			const { MaterialResourceRegistry } = await import('../../lib/core/resource-registry');
+			const registered = vi.spyOn(MaterialResourceRegistry.prototype, 'registerTexture');
+			const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+			let passes: AnyPass[] = [
+				new PingPongShaderPass({
+					target: 'sim',
+					format,
+					width: 8,
+					height: 4,
+					fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+				})
+			];
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: { format: 'rgba32float' } },
+				getPasses: () => passes
+			});
+			const resource = registered.mock.results[0]!.value;
+			const fallback = resource.publishedView;
+			renderFrame(renderer);
+			expect(resource).toMatchObject({
+				format,
+				width: 8,
+				height: 4,
+				mipLevelCount: 1,
+				ownedTexture: null
+			});
+			expect(resource.sampledView).toBe(resource.publishedView);
+			expect(resource.publishedView).not.toBe(fallback);
+			passes = [];
+			renderFrame(renderer);
+			expect(resource.publishedView).toBe(fallback);
+			expect(resource.width).toBeUndefined();
+			renderer.destroy();
+		}
+	);
+
 	it('tracks shared shader feedback output and reset separately for each texture owner', async () => {
 		const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
 		const pass = new PingPongShaderPass({

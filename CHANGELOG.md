@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed unfilterable fragment-feedback outputs reaching incompatible material bind groups. The renderer now reports the required material texture format before binding, preserves compatible float32 layouts, and publishes the actual feedback format and dimensions.
+
 - Fixed aborted GPU frames advancing feedback parity, consuming resets, and publishing unwritten results. Frame encoding now rolls back CPU resource state on failure and releases replaced uploads only after submission; mipmap work also remains pending until submitted.
 
 - Fixed React runtime getters, frame callbacks, and texture reloads observing values from suspended or abandoned renders. Updates now become visible only after React commits them.

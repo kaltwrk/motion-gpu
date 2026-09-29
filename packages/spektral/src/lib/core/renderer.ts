@@ -1549,6 +1549,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		const attachFeedbackTextureBinding = (
 			binding: RuntimeTextureBinding,
 			view: GPUTextureView,
+			pair: PingPongShaderTexturePair,
 			frameState: FrameStateTransaction
 		): boolean => {
 			const resource = binding.resource;
@@ -1560,14 +1561,16 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			resourceRegistry.replaceTextureAllocation(binding.key, {
 				ownedTexture: null,
 				storageView: null,
-				sampledView: binding.fallbackView,
-				format: resource.format,
-				width: undefined,
-				height: undefined,
+				sampledView: view,
+				format: pair.format,
+				width: pair.width,
+				height: pair.height,
 				mipLevelCount: 1,
-				usage: sampledFallbackUsage
+				usage:
+					GPUTextureUsage.TEXTURE_BINDING |
+					GPUTextureUsage.RENDER_ATTACHMENT |
+					GPUTextureUsage.COPY_DST
 			});
-			resourceRegistry.publishTextureView(binding.key, view);
 			binding.feedbackViewActive = true;
 			binding.source = null;
 			binding.lastToken = null;
@@ -1602,7 +1605,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					ownedTexture: null,
 					storageView: null,
 					sampledView: binding.fallbackView,
-					format: resource.format,
+					format: normalizedTextureDefinitions[binding.key]!.format,
 					width: undefined,
 					height: undefined,
 					mipLevelCount: 1,
@@ -2646,6 +2649,21 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 						);
 					}
 
+					const feedbackFormat = feedbackPass.getFormat();
+					const feedbackSampling = resolveTextureSamplingLayout({
+						format: feedbackFormat,
+						filter: feedbackPass.getFilter(),
+						deviceFeatures: device.features
+					});
+					if (
+						feedbackSampling.sampleType === 'unfilterable-float' &&
+						targetBinding.resource.sampleType === 'float'
+					) {
+						throw createSpektralError(
+							'FORMAT_CAPABILITY_MISSING',
+							`PingPongShaderPass target "${target}" uses "${feedbackFormat}", which is not filterable on this device. Set the material texture format to "${feedbackFormat}" so its sampling layout supports this output.`
+						);
+					}
 					const size = feedbackPass.resolveSize({ width, height });
 					const pair = ensurePingPongShaderTexturePair(feedbackPass, {
 						target,
@@ -2710,7 +2728,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					feedbackPass.advanceFrame();
 					const latestOutput = feedbackPass.getCurrentOutput();
 					const latestView = latestOutput === `${pair.target}B` ? pair.viewB : pair.viewA;
-					if (attachFeedbackTextureBinding(targetBinding, latestView, frameState)) {
+					if (attachFeedbackTextureBinding(targetBinding, latestView, pair, frameState)) {
 						bindGroup = createBindGroup();
 					}
 				}
