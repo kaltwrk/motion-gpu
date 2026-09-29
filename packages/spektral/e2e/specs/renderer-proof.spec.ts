@@ -75,3 +75,17 @@ test('feedback passes and the scene read their own resolution after submission',
 	}, proofUrl);
 	expect(pixel).toEqual([64, 128, 255, 255]);
 });
+
+for (const kind of ['fragment', 'compute'] as const) {
+	test(`${kind} feedback preserves submitted state after an aborted frame`, async ({ page }) => {
+		const pixels = await page.evaluate(
+			async ({ url, kind }) => {
+				const proof: typeof import('../renderer-proof') = await import(/* @vite-ignore */ url);
+				return proof.readAbortedFeedback(kind);
+			},
+			{ url: proofUrl, kind }
+		);
+		expect(Math.abs(pixels[0]! - 26)).toBeLessThanOrEqual(1);
+		expect(Math.abs(pixels[1]! - 51)).toBeLessThanOrEqual(1);
+	});
+}

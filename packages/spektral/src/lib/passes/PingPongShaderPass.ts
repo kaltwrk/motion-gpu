@@ -1,7 +1,11 @@
 import { resolveTextureFormatCapabilities } from '../core/format-capabilities.js';
 import { preprocessMaterialFragment, type MaterialLineMap } from '../core/material-preprocess.js';
 import type { MaterialDefines, MaterialIncludes } from '../core/material.js';
-import { managedPassBrand, selectFeedbackOwner } from '../core/pass-brand.js';
+import {
+	managedPassBrand,
+	selectFeedbackOwner,
+	type FeedbackOwnerState
+} from '../core/pass-brand.js';
 import { assertUniformName } from '../core/uniforms.js';
 
 const FRAGMENT_FUNCTION_SIGNATURE_PATTERN =
@@ -296,13 +300,14 @@ export class PingPongShaderPass {
 	}
 
 	/** @internal The texture-pair identity also resets state after reallocation. */
-	[selectFeedbackOwner](owner: object): void {
+	[selectFeedbackOwner](owner: object): FeedbackOwnerState {
 		let state = this.ownerStates.get(owner);
 		if (!state) {
 			state = { totalIterations: 0, resetPending: true };
 			this.ownerStates.set(owner, state);
 		}
 		this.state = state;
+		return state;
 	}
 
 	/**

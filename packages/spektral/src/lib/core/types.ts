@@ -3,7 +3,7 @@
  */
 
 import type { MaterialLineMap } from './material-contracts.js';
-import { managedPassBrand, selectFeedbackOwner } from './pass-brand.js';
+import { managedPassBrand, selectFeedbackOwner, type FeedbackOwnerState } from './pass-brand.js';
 
 /**
  * WGSL-compatible uniform primitive and aggregate types supported by Spektral.
@@ -810,7 +810,7 @@ export interface ComputePassLike {
  */
 export interface PingPongShaderPassLike {
 	readonly [managedPassBrand]: 'feedback';
-	[selectFeedbackOwner]: (owner: object) => void;
+	[selectFeedbackOwner]: (owner: object) => FeedbackOwnerState;
 	readonly isPingPongShader: true;
 	readonly label?: string;
 	enabled: boolean;

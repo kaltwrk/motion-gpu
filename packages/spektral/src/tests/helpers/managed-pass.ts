@@ -43,7 +43,7 @@ export function createManagedFeedbackPass(
 ): PingPongShaderPassLike {
 	return {
 		[managedPassBrand]: 'feedback',
-		[selectFeedbackOwner]: () => {},
+		[selectFeedbackOwner]: () => ({ totalIterations: 0, resetPending: true }),
 		isPingPongShader: true,
 		enabled: true,
 		dispose: () => {},

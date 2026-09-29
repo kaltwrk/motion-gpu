@@ -3714,6 +3714,95 @@ describe('createRenderer', () => {
 		}
 	});
 
+	it.each(['first', 'later', 'reset', 'submit'] as const)(
+		'commits shader feedback state only after submission (%s failure)',
+		async (failure) => {
+			const runtime = createWebGpuRuntime();
+			const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+			const feedback = new PingPongShaderPass({
+				target: 'sim',
+				width: 8,
+				height: 8,
+				fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+			});
+			let fail = false;
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: { colorSpace: 'linear' } },
+				passes: [
+					feedback,
+					{
+						needsSwap: false,
+						render() {
+							if (fail) throw new Error('Aborted');
+						}
+					}
+				]
+			});
+			if (failure !== 'first') renderFrame(renderer);
+			if (failure === 'reset') feedback.reset([0.25, 0, 0, 1]);
+			const committed = feedback.getCurrentOutput();
+			if (failure === 'submit')
+				runtime.device.queue.submit.mockImplementationOnce(() => {
+					throw new Error('Aborted');
+				});
+			else fail = true;
+			expect(() => renderFrame(renderer)).toThrow('Aborted');
+			expect(feedback.getCurrentOutput()).toBe(committed);
+			fail = false;
+			renderFrame(renderer);
+			expect(feedback.getCurrentOutput()).toBe(committed === 'simA' ? 'simB' : 'simA');
+			if (failure === 'first' || failure === 'reset') {
+				const clears = runtime.commandEncoders
+					.at(-1)!
+					.beginRenderPass.mock.calls.map(
+						([descriptor]) =>
+							Array.from((descriptor as GPURenderPassDescriptor).colorAttachments)[0]
+					)
+					.filter((attachment) => attachment?.loadOp === 'clear');
+				expect(clears.length).toBeGreaterThanOrEqual(3);
+			}
+			renderer.destroy();
+		}
+	);
+
+	it('retries aborted compute feedback with the same read/write direction', async () => {
+		const runtime = createWebGpuRuntime();
+		const { PingPongComputePass } = await import('../../lib/passes/PingPongComputePass');
+		const feedback = new PingPongComputePass({
+			compute:
+				'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {}',
+			resources: {
+				previous: { texture: 'sim', access: 'sampled', pingPong: 'read' },
+				next: { texture: 'sim', access: 'storage-write', pingPong: 'write' }
+			}
+		});
+		let fail = false;
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['sim'],
+			textureDefinitions: { sim: { storage: true, format: 'rgba16float', width: 8, height: 8 } },
+			passes: [
+				feedback,
+				{
+					needsSwap: false,
+					render() {
+						if (fail) throw new Error('Aborted');
+					}
+				}
+			]
+		});
+		renderFrame(renderer);
+		fail = true;
+		expect(() => renderFrame(renderer)).toThrow('Aborted');
+		const abortedGroup = runtime.computePasses.at(-1)!.setBindGroup.mock.calls.at(-1)![1];
+		fail = false;
+		renderFrame(renderer);
+		expect(runtime.computePasses.at(-1)!.setBindGroup.mock.calls.at(-1)![1]).toBe(abortedGroup);
+		renderer.destroy();
+	});
+
 	it('tracks shared shader feedback output and reset separately for each texture owner', async () => {
 		const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
 		const pass = new PingPongShaderPass({

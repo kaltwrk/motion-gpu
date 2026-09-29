@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed aborted GPU frames advancing feedback parity, consuming resets, and publishing unwritten results. Frame encoding now rolls back CPU resource state on failure and releases replaced uploads only after submission; mipmap work also remains pending until submitted.
+
 - Fixed React runtime getters, frame callbacks, and texture reloads observing values from suspended or abandoned renders. Updates now become visible only after React commits them.
 
 - Fixed a transient frame-task error permanently stopping `always` rendering. The loop now schedules the next frame after reporting the error.

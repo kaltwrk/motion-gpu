@@ -184,3 +184,93 @@ export async function readPostprocessColors(
 		renderer.destroy();
 	}
 }
+
+export async function readAbortedFeedback(kind: 'fragment' | 'compute'): Promise<number[]> {
+	const { PingPongComputePass } = await import('../src/lib/passes/PingPongComputePass');
+	const canvas = document.createElement('canvas');
+	const material = resolveMaterial(
+		defineMaterial({
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return textureLoad(sim, vec2i(0), 0); }',
+			textures: {
+				sim: {
+					colorSpace: 'linear',
+					...(kind === 'compute'
+						? ({ storage: true, format: 'rgba16float', width: 4, height: 4 } as const)
+						: {})
+				}
+			}
+		})
+	);
+	const feedback =
+		kind === 'fragment'
+			? new PingPongShaderPass({
+					target: 'sim',
+					width: 4,
+					height: 4,
+					fragment:
+						'fn frag(uv: vec2f) -> vec4f { return vec4f(textureLoad(spektralPrevious, vec2i(0), 0).r + 0.1, 0.0, 0.0, 1.0); }'
+				})
+			: new PingPongComputePass({
+					compute:
+						'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) { if (id.x < 4u && id.y < 4u) { textureStore(next, vec2i(id.xy), vec4f(textureLoad(previous, vec2i(id.xy), 0).r + 0.1, 0.0, 0.0, 1.0)); } }',
+					resources: {
+						previous: { texture: 'sim', access: 'sampled', pingPong: 'read' },
+						next: { texture: 'sim', access: 'storage-write', pingPong: 'write' }
+					}
+				});
+	let fail = false;
+	const renderer = await createRenderer({
+		canvas,
+		fragmentWgsl: material.fragmentWgsl,
+		fragmentSource: material.fragmentSource,
+		fragmentLineMap: [...material.fragmentLineMap],
+		includeSources: material.includeSources,
+		uniformLayout: material.uniformLayout,
+		textureKeys: [...material.textureKeys],
+		textureDefinitions: material.textures,
+		passes: [
+			feedback,
+			{
+				needsSwap: false,
+				render() {
+					if (fail) throw new Error('Aborted');
+				}
+			}
+		],
+		getDpr: () => 1,
+		getClearColor: () => [0, 0, 0, 1],
+		color: { outputEncoding: 'linear' }
+	});
+	const output = document.createElement('canvas');
+	output.width = output.height = 4;
+	const context = output.getContext('2d')!;
+	const draw = () =>
+		renderer.render({
+			time: 0,
+			delta: 0.016,
+			renderMode: 'manual',
+			uniforms: {},
+			textures: {},
+			canvasSize: { width: 4, height: 4 }
+		});
+	const read = () => {
+		context.drawImage(canvas, 0, 0);
+		return context.getImageData(0, 0, 1, 1).data[0]!;
+	};
+	try {
+		draw();
+		const first = read();
+		fail = true;
+		try {
+			draw();
+			throw new Error('Expected an aborted frame');
+		} catch (error) {
+			if (!(error instanceof Error) || error.message !== 'Aborted') throw error;
+		}
+		fail = false;
+		draw();
+		return [first, read()];
+	} finally {
+		renderer.destroy();
+	}
+}
