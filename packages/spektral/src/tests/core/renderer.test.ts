@@ -3,13 +3,14 @@ import { getShaderCompilationDiagnostics } from '../../lib/core/error-diagnostic
 import { toSpektralErrorReport } from '../../lib/core/error-report';
 import { defineMaterial } from '../../lib/core/material';
 import { createRenderer } from '../../lib/core/renderer';
-import { BlitPass } from '../../lib/passes';
+import { BlitPass, CopyPass } from '../../lib/passes';
 import { resolveUniformLayout } from '../../lib/core/uniforms';
 import { createSpektralGraphBridge } from '../../lib/core/render-graph-reader';
 import type { AnyPass, RenderPass, RenderTargetDefinitionMap } from '../../lib/core/types';
 
 type MockTexture = {
 	descriptor: GPUTextureDescriptor;
+	usage: GPUTextureUsageFlags;
 	destroy: ReturnType<typeof vi.fn>;
 	createView: ReturnType<typeof vi.fn>;
 };
@@ -75,6 +76,7 @@ interface MockWebGpuRuntime {
 function createMockTexture(descriptor: GPUTextureDescriptor): MockTexture {
 	const texture: MockTexture = {
 		descriptor,
+		usage: descriptor.usage,
 		destroy: vi.fn(),
 		createView: vi.fn(
 			(viewDescriptor?: GPUTextureViewDescriptor) =>
@@ -1839,6 +1841,49 @@ describe('createRenderer', () => {
 			);
 			renderer.destroy();
 			for (const surface of allocated()) expect(surface.destroy).toHaveBeenCalledTimes(1);
+		}
+	);
+
+	it.each(['rgba8unorm', 'rgba16float'] as const)(
+		'keeps only two CopyPass surfaces through reuse and resizing (%s)',
+		async (workingFormat) => {
+			const runtime = createWebGpuRuntime();
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				passes: [new CopyPass()],
+				color: { workingFormat }
+			});
+			const surfaces = () =>
+				runtime.textures.filter(
+					(texture) =>
+						(texture.usage & GPUTextureUsage.TEXTURE_BINDING) !== 0 &&
+						(texture.descriptor.size as GPUExtent3DDict).width > 1
+				);
+			try {
+				for (const width of [3840, 3840, 1920]) {
+					renderer.render({
+						time: 0,
+						delta: 0.016,
+						renderMode: 'manual',
+						uniforms: {},
+						textures: {},
+						canvasSize: { width, height: (width * 9) / 16 }
+					});
+					const active = surfaces().filter((texture) => texture.destroy.mock.calls.length === 0);
+					expect(active).toHaveLength(2);
+					for (const texture of active) {
+						expect(texture.descriptor).toMatchObject({
+							format: workingFormat,
+							size: { width, height: (width * 9) / 16 }
+						});
+					}
+					expect(runtime.commandEncoders.at(-1)!.copyTextureToTexture).toHaveBeenCalledOnce();
+				}
+				expect(surfaces()).toHaveLength(4);
+			} finally {
+				renderer.destroy();
+			}
+			for (const texture of surfaces()) expect(texture.destroy).toHaveBeenCalledOnce();
 		}
 	);
 

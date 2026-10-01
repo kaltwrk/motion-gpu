@@ -11,6 +11,30 @@ test.beforeEach(async ({ page }) => {
 });
 
 for (const workingFormat of ['rgba8unorm', 'rgba16float'] as const) {
+	test(`CopyPass allocates only two intermediate surfaces per size (${workingFormat})`, async ({
+		page
+	}) => {
+		const { copy, blit } = await page.evaluate(
+			async ({ url, workingFormat }) => {
+				const proof: typeof import('../postprocess-orientation-proof') = await import(
+					/* @vite-ignore */ url
+				);
+				return {
+					copy: await proof.readPostprocessOrientation('copy', workingFormat),
+					blit: await proof.readPostprocessOrientation('blit', workingFormat)
+				};
+			},
+			{ url: proofUrl, workingFormat }
+		);
+		expect(copy.validation).toBeNull();
+		expect(blit.validation).toBeNull();
+		expect(copy.pixels).toEqual(blit.pixels);
+		expect(copy.allocations).toEqual(blit.allocations);
+		expect(copy.allocations).toEqual(
+			[8, 8, 16, 16].map((size) => ({ width: size, height: size, format: workingFormat }))
+		);
+	});
+
 	for (const kind of [
 		'copy',
 		'copy-clear',

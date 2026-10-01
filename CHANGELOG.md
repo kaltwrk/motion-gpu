@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Performance
 
+- Removed an unused full-size presentation texture from the direct `CopyPass` path. Copy eligibility now checks the resolved texture usages without reading the lazy canvas surface, reducing ordinary copy chains from three intermediate textures to two.
+
 - Removed the unused presentation texture from ordinary postprocessing chains. The canvas intermediate is now allocated on demand, and unused intermediate textures are released after submission when the graph changes.
 
 ### Fixed

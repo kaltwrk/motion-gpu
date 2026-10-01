@@ -56,6 +56,15 @@ export async function readPostprocessOrientation(
 		color: { workingFormat, outputEncoding: 'linear' }
 	});
 	const device = renderer.getDevice!();
+	const createTexture = device.createTexture;
+	const allocations: Array<{ width: number; height: number; format: GPUTextureFormat }> = [];
+	device.createTexture = function (descriptor) {
+		const texture = createTexture.call(this, descriptor);
+		if ((texture.usage & GPUTextureUsage.TEXTURE_BINDING) !== 0 && texture.width > 1) {
+			allocations.push({ width: texture.width, height: texture.height, format: texture.format });
+		}
+		return texture;
+	};
 	device.pushErrorScope('validation');
 	try {
 		const probe = document.createElement('canvas');
@@ -79,8 +88,9 @@ export async function readPostprocessOrientation(
 				[size - 1, size - 1]
 			].map(([x, y]) => [...context.getImageData(x!, y!, 1, 1).data]);
 		});
-		return { pixels, validation: (await device.popErrorScope())?.message ?? null };
+		return { pixels, allocations, validation: (await device.popErrorScope())?.message ?? null };
 	} finally {
+		device.createTexture = createTexture;
 		renderer.destroy();
 	}
 }

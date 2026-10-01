@@ -28,7 +28,10 @@ function deferred<T>(): Deferred<T> {
 
 function createTarget(key: string, format: GPUTextureFormat = 'rgba8unorm'): RenderTarget {
 	return {
-		texture: { key } as unknown as GPUTexture,
+		texture: {
+			key,
+			usage: GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST
+		} as unknown as GPUTexture,
 		view: { key: `${key}-view` } as unknown as GPUTextureView,
 		width: 32,
 		height: 32,
@@ -201,6 +204,7 @@ function compilationInfo(messages: Partial<GPUCompilationMessage>[]): GPUCompila
 describe('internal fullscreen pass preparation', () => {
 	beforeEach(() => {
 		vi.stubGlobal('GPUShaderStage', { FRAGMENT: 0x10 });
+		vi.stubGlobal('GPUTextureUsage', { COPY_SRC: 1, COPY_DST: 2 });
 	});
 
 	afterEach(() => {

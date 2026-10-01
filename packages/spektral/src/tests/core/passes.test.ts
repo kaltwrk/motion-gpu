@@ -8,7 +8,13 @@ import {
 
 function createTarget(key: string): RenderTarget {
 	return {
-		texture: { key } as unknown as GPUTexture,
+		texture: {
+			key,
+			usage:
+				key === 'canvas'
+					? GPUTextureUsage.RENDER_ATTACHMENT
+					: GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST
+		} as unknown as GPUTexture,
 		view: { key: `${key}-view` } as unknown as GPUTextureView,
 		width: 32,
 		height: 32,
@@ -94,6 +100,7 @@ function createPassContext(overrides?: Partial<RenderPassContext>): RenderPassCo
 describe('built-in passes', () => {
 	beforeEach(() => {
 		vi.stubGlobal('GPUShaderStage', { FRAGMENT: 0x10 });
+		vi.stubGlobal('GPUTextureUsage', { COPY_SRC: 1, COPY_DST: 2, RENDER_ATTACHMENT: 16 });
 	});
 
 	afterEach(() => {
@@ -206,6 +213,32 @@ fn shade(inputColor: vec4f, uv: vec2f) -> vec4f {
 		expect(fallbackRender).not.toHaveBeenCalled();
 	});
 
+	it('copies compatible surfaces without accessing the lazy canvas surface', () => {
+		const pass = new CopyPass();
+		const context = createPassContext();
+		const canvas = context.canvas;
+		const getCanvas = vi.fn(() => canvas);
+		Object.defineProperty(context, 'canvas', { get: getCanvas });
+		pass.render(context);
+		expect(context.commandEncoder.copyTextureToTexture).toHaveBeenCalledOnce();
+		expect(getCanvas).not.toHaveBeenCalled();
+	});
+
+	it.each(['input', 'output'] as const)(
+		'falls back when %s lacks the required GPU copy usage',
+		async (slot) => {
+			const pass = new CopyPass();
+			const context = createPassContext();
+			context[slot].texture = {
+				usage: slot === 'input' ? GPUTextureUsage.COPY_DST : GPUTextureUsage.COPY_SRC
+			} as GPUTexture;
+			await preparePass(pass, context);
+			pass.render(context);
+			expect(context.commandEncoder.copyTextureToTexture).not.toHaveBeenCalled();
+			expect(context.beginRenderPass).toHaveBeenCalledOnce();
+		}
+	);
+
 	it('falls back to blit when CopyPass cannot use direct copy', async () => {
 		const pass = new CopyPass();
 		const context = createPassContext({ clear: true });
@@ -305,6 +338,16 @@ fn shade(inputColor: vec4f, uv: vec2f) -> vec4f {
 		pass.render(targetCanvasContext);
 		expect(targetCanvasContext.commandEncoder.copyTextureToTexture).not.toHaveBeenCalled();
 		expect(sourceFallback).toHaveBeenCalledTimes(1);
+	});
+
+	it('retains the canvas blit fallback when its backing texture supports copying', async () => {
+		const pass = new CopyPass({ needsSwap: false, output: 'canvas' });
+		const context = createPassContext();
+		context.canvas = context.output;
+		await preparePass(pass, context);
+		pass.render(context);
+		expect(context.commandEncoder.copyTextureToTexture).not.toHaveBeenCalled();
+		expect(context.beginRenderPass).toHaveBeenCalledOnce();
 	});
 
 	it('disposes internal blit pass when CopyPass is disposed', () => {
