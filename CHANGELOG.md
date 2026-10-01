@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed uniform and texture names such as `toString` and `constructor` reading inherited JavaScript methods as runtime overrides. Defaults and explicit overrides now use prototype-free maps.
+
 - Fixed anisotropic texture sampling creating an invalid WebGPU sampler when mipmap generation is disabled. Effective anisotropy now selects the required linear mip filter without allocating extra mip levels.
 
 - Fixed idle on-demand and manual canvases staying blank after device loss. A successfully rebuilt renderer now renders one recovery frame, including after initialization retries.

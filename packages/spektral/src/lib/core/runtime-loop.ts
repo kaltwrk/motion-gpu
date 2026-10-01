@@ -145,8 +145,9 @@ export function createSpektralRuntimeLoop(
 	let rendererRebuildPromise: Promise<void> | null = null;
 	let needsDeviceRecoveryFrame = false;
 
-	const runtimeUniforms: Record<string, UniformValue> = {};
-	const runtimeTextures: TextureMap = {};
+	// Material identifiers such as "toString" must not inherit implicit overrides.
+	const runtimeUniforms = Object.create(null) as Record<string, UniformValue>;
+	const runtimeTextures = Object.create(null) as TextureMap;
 	let activeUniforms: Readonly<Record<string, UniformValue>> = {};
 	let activeTextures: Readonly<Record<string, { source?: TextureValue }>> = {};
 	let uniformKeys: string[] = [];

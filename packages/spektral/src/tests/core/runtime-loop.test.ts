@@ -71,6 +71,81 @@ describe('runtime-loop', () => {
 		vi.restoreAllMocks();
 	});
 
+	it.each(['toString', 'constructor', 'valueOf', 'hasOwnProperty'])(
+		'treats prototype name %s as an ordinary uniform and texture key',
+		async (name) => {
+			const fragment = 'fn frag(uv: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }';
+			const source = document.createElement('canvas');
+			const replacement = document.createElement('canvas');
+			let material = defineMaterial({
+				fragment,
+				uniforms: { [name]: 0.5 },
+				textures: { [name]: { source } }
+			});
+			const registry = createFrameRegistry();
+			const renderer: MockRenderer = { render: vi.fn(), destroy: vi.fn() };
+			createRendererMock.mockResolvedValue(renderer);
+			const reportError = vi.fn();
+			const loop = createSpektralRuntimeLoop({
+				canvas: createCanvas(),
+				registry,
+				size: createCurrentWritable({ width: 0, height: 0 }),
+				dpr: createCurrentWritable(1),
+				maxDelta: createCurrentWritable(0.1),
+				getMaterial: () => material,
+				getRenderTargets: () => ({}),
+				getPasses: () => [],
+				getClearColor: () => [0, 0, 0, 1],
+				getAdapterOptions: () => undefined,
+				getDeviceDescriptor: () => undefined,
+				getOnError: () => undefined,
+				reportError
+			});
+			const expectPayload = (
+				expectedUniform: number,
+				expectedTexture: HTMLCanvasElement | null
+			) => {
+				const payload = renderer.render.mock.lastCall![0];
+				const layout = resolveMaterial(material).uniformLayout;
+				const packed = new Float32Array(layout.byteLength / 4);
+				packUniformsIntoFast(payload.uniforms, layout, packed);
+				expect.soft(payload.uniforms[name]).toBe(expectedUniform);
+				expect.soft(packed[0]).toBe(expectedUniform);
+				expect.soft(payload.textures[name]).toBe(expectedTexture);
+			};
+			try {
+				await flushFrame(16);
+				await flushFrame(32);
+				expectPayload(0.5, source);
+				const task = registry.register((state) => {
+					state.setUniform(name, 0.75);
+					state.setTexture(name, replacement);
+				});
+				await flushFrame(48);
+				expectPayload(0.75, replacement);
+				task.stop();
+				await flushFrame(64);
+				expectPayload(0.75, replacement);
+				material = defineMaterial({ fragment });
+				await flushFrame(80);
+				await flushFrame(96);
+				expect(Object.keys(renderer.render.mock.lastCall![0].uniforms)).toEqual([]);
+				expect(Object.keys(renderer.render.mock.lastCall![0].textures)).toEqual([]);
+				material = defineMaterial({
+					fragment,
+					uniforms: { [name]: 0.25 },
+					textures: { [name]: {} }
+				});
+				await flushFrame(112);
+				await flushFrame(128);
+				expectPayload(0.25, null);
+				expect(reportError).not.toHaveBeenCalled();
+			} finally {
+				loop.destroy();
+			}
+		}
+	);
+
 	it.each<{
 		label: string;
 		initial: UniformValue;
