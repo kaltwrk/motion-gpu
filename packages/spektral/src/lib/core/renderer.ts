@@ -1745,6 +1745,9 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		}
 
 		let bindGroup = createBindGroup();
+		// Source allocations can change before a later texture update throws.
+		// Retain their invalidation until the fragment bind group is rebuilt.
+		let sourceTextureBindingsDirty = false;
 		let sourceSlotTarget: RuntimeRenderTarget | null = null;
 		let targetSlotTarget: RuntimeRenderTarget | null = null;
 		let presentationSlotTarget: RuntimeRenderTarget | null = null;
@@ -2308,7 +2311,6 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			}
 
 			const commandEncoder = device.createCommandEncoder();
-			let bindGroupDirty = false;
 			for (const binding of textureBindings) {
 				// Storage textures are managed by compute passes, skip source-driven updates
 				if (normalizedTextureDefinitions[binding.key]?.storage) continue;
@@ -2319,14 +2321,15 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 						? (normalizedTextureDefinitions[binding.key]?.source ?? null)
 						: runtimeTexture;
 				if (updateTextureBinding(binding, nextTexture, renderMode) && binding.fragmentVisible) {
-					bindGroupDirty = true;
+					sourceTextureBindingsDirty = true;
 				}
 			}
 
-			if (bindGroupDirty) {
+			if (sourceTextureBindingsDirty) {
 				bindGroup = createBindGroup();
-				bindGroupDirty = false;
+				sourceTextureBindingsDirty = false;
 			}
+			let bindGroupDirty = false;
 
 			// Apply pending storage buffer writes
 			if (pendingStorageWrites) {

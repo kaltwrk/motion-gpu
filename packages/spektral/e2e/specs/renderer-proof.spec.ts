@@ -108,3 +108,13 @@ for (const matching of [false, true]) {
 		} else expect(result.error).toMatch(/sim.*rgba32float.*material.*format/s);
 	});
 }
+
+test('texture bindings recover after a sibling texture update fails', async ({ page }) => {
+	const result = await page.evaluate(async (url) => {
+		const proof: typeof import('../renderer-proof') = await import(/* @vite-ignore */ url);
+		return proof.readTextureUpdateRecovery();
+	}, proofUrl);
+	expect(result.error).toMatch(/positive integer/);
+	expect(result.validation).toBeNull();
+	expect(result.pixel).toEqual([0, 255, 0, 255]);
+});

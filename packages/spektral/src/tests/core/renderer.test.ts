@@ -1374,6 +1374,55 @@ describe('createRenderer', () => {
 		renderer.destroy();
 	});
 
+	it.each(['replace', 'clear'] as const)(
+		'rebuilds bindings after a partial texture update fails (%s)',
+		async (change) => {
+			const runtime = createWebGpuRuntime();
+			const source = document.createElement('canvas');
+			source.width = source.height = 4;
+			const replacement = document.createElement('canvas');
+			replacement.width = replacement.height = 8;
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['a', 'b'],
+				textureDefinitions: { a: { source }, b: {} }
+			});
+			const frame = { time: 0, delta: 0.016, renderMode: 'always' as const, uniforms: {} };
+			try {
+				renderer.render({ ...frame, textures: {} });
+				const oldTexture = runtime.textures.find(
+					(texture) => (texture.descriptor.size as GPUExtent3DDict).width === 4
+				)!;
+				const oldView = oldTexture.createView.mock.results[0]!.value as GPUTextureView;
+				const nextSource = change === 'replace' ? replacement : null;
+				expect(() =>
+					renderer.render({
+						...frame,
+						textures: { a: nextSource, b: { source, width: 0 } }
+					})
+				).toThrow(/positive integer/);
+				expect(oldTexture.destroy).toHaveBeenCalledOnce();
+				const submissionsBeforeRecovery = runtime.device.queue.submit.mock.calls.length;
+				renderer.render({ ...frame, textures: { a: nextSource, b: null } });
+				const boundGroup = runtime.renderPasses.at(-1)!.setBindGroup.mock.calls[0]![1];
+				const groupIndex = runtime.device.createBindGroup.mock.results.findIndex(
+					(result) => result.value === boundGroup
+				);
+				const descriptor = runtime.device.createBindGroup.mock.calls[
+					groupIndex
+				]![0] as GPUBindGroupDescriptor;
+				const view = Array.from(descriptor.entries).find((entry) => entry.binding === 3)!.resource;
+				expect(view).not.toBe(oldView);
+				expect(runtime.device.queue.submit).toHaveBeenCalledTimes(submissionsBeforeRecovery + 1);
+				const bindGroupsAfterRecovery = runtime.device.createBindGroup.mock.calls.length;
+				renderer.render({ ...frame, textures: { a: nextSource, b: null } });
+				expect(runtime.device.createBindGroup).toHaveBeenCalledTimes(bindGroupsAfterRecovery);
+			} finally {
+				renderer.destroy();
+			}
+		}
+	);
+
 	it('keeps existing runtime texture usable when same-sized upload fails', async () => {
 		const runtime = createWebGpuRuntime();
 		const sourceA = document.createElement('canvas');

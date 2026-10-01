@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed a failed texture update leaving later frames bound to a destroyed texture. Source binding invalidation now survives partial updates until the bind group is rebuilt.
+
 - Fixed fragment-feedback pipeline caches retaining every shader edit until renderer disposal. Unused variants now follow a bounded LRU policy while active feedback pipelines remain cached.
 
 - Fixed compute pipeline cache thrashing when a graph uses more than 32 distinct pipelines. Active pass pipelines are now retained while inactive history stays bounded; late validation from an evicted pipeline cannot overwrite its replacement.

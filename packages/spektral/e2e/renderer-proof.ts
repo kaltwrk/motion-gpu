@@ -336,3 +336,66 @@ export async function readFeedbackFormat(
 		renderer.destroy();
 	}
 }
+
+/** A failed sibling update must not leave the scene bound to a destroyed allocation. */
+export async function readTextureUpdateRecovery(): Promise<{
+	error: string | null;
+	validation: string | null;
+	pixel: number[];
+}> {
+	const source = document.createElement('canvas');
+	source.width = source.height = 2;
+	source.getContext('2d')!.fillRect(0, 0, 2, 2);
+	const replacement = document.createElement('canvas');
+	replacement.width = replacement.height = 4;
+	const paint = replacement.getContext('2d')!;
+	paint.fillStyle = '#00ff00';
+	paint.fillRect(0, 0, 4, 4);
+	const canvas = document.createElement('canvas');
+	const material = resolveMaterial(
+		defineMaterial({
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return textureLoad(a, vec2i(0), 0); }',
+			textures: { a: { source }, b: {} }
+		})
+	);
+	const renderer = await createRenderer({
+		canvas,
+		fragmentWgsl: material.fragmentWgsl,
+		uniformLayout: material.uniformLayout,
+		textureKeys: [...material.textureKeys],
+		textureDefinitions: material.textures,
+		fragmentSource: material.fragmentSource,
+		fragmentLineMap: [...material.fragmentLineMap],
+		includeSources: material.includeSources,
+		getDpr: () => 1,
+		getClearColor: () => [0, 0, 0, 1]
+	});
+	const frame = {
+		time: 0,
+		delta: 0.016,
+		renderMode: 'manual' as const,
+		uniforms: {},
+		canvasSize: { width: 4, height: 4 }
+	};
+	try {
+		const device = renderer.getDevice!();
+		device.pushErrorScope('validation');
+		renderer.render({ ...frame, textures: {} });
+		let error: string | null = null;
+		try {
+			renderer.render({ ...frame, textures: { a: replacement, b: { source, width: 0 } } });
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : String(cause);
+		}
+		renderer.render({ ...frame, textures: { a: replacement, b: null } });
+		const output = document.createElement('canvas');
+		output.width = output.height = 1;
+		const context = output.getContext('2d')!;
+		context.drawImage(canvas, 0, 0);
+		const pixel = [...context.getImageData(0, 0, 1, 1).data];
+		const validation = (await device.popErrorScope())?.message ?? null;
+		return { error, validation, pixel };
+	} finally {
+		renderer.destroy();
+	}
+}
