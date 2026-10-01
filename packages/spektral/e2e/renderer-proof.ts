@@ -63,12 +63,13 @@ export async function readFeedbackResolution(): Promise<number[]> {
 
 async function readTextureSequence(
 	definition: TextureDefinition,
-	values: TextureMap[]
+	values: TextureMap[],
+	fragment = 'fn frag(uv: vec2f) -> vec4f { return textureLoad(photo, vec2i(0), 0); }'
 ): Promise<number[][]> {
 	const canvas = document.createElement('canvas');
 	const material = resolveMaterial(
 		defineMaterial({
-			fragment: 'fn frag(uv: vec2f) -> vec4f { return textureLoad(photo, vec2i(0), 0); }',
+			fragment,
 			textures: { photo: definition }
 		})
 	);
@@ -116,6 +117,20 @@ export async function readTextureReset(): Promise<number[][]> {
 	context.fillStyle = '#ff0000';
 	context.fillRect(0, 0, 1, 1);
 	return readTextureSequence({ source }, [{}, { photo: null }, { photo: null }, {}]);
+}
+
+export async function readAnisotropicTexture(generateMipmaps: boolean): Promise<number[][]> {
+	const source = document.createElement('canvas');
+	source.width = source.height = 4;
+	const context = source.getContext('2d');
+	if (!context) throw new Error('Canvas 2D context is unavailable');
+	context.fillStyle = '#00ff00';
+	context.fillRect(0, 0, 4, 4);
+	return readTextureSequence(
+		{ source, anisotropy: 4, generateMipmaps },
+		[{}],
+		'fn frag(uv: vec2f) -> vec4f { return textureSample(photo, photoSampler, uv); }'
+	);
 }
 
 export async function readTextureColorSpace(format?: GPUTextureFormat): Promise<number[][]> {

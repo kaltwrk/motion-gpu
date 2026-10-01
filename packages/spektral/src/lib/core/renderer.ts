@@ -510,16 +510,19 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					`Texture "${key}" with format "${config.format}" cannot generate mipmaps because it is not filterable on this device.`
 				);
 			}
+			const maxAnisotropy =
+				samplingLayout.samplerType === 'filtering' && samplingLayout.effectiveFilter === 'linear'
+					? config.anisotropy
+					: 1;
 			const sampler = device.createSampler({
 				magFilter: samplingLayout.effectiveFilter,
 				minFilter: samplingLayout.effectiveFilter,
-				mipmapFilter: config.generateMipmaps ? samplingLayout.effectiveFilter : 'nearest',
+				// WebGPU requires linear mip filtering for anisotropy, even with one mip level.
+				mipmapFilter:
+					config.generateMipmaps || maxAnisotropy > 1 ? samplingLayout.effectiveFilter : 'nearest',
 				addressModeU: config.addressModeU,
 				addressModeV: config.addressModeV,
-				maxAnisotropy:
-					samplingLayout.samplerType === 'filtering' && samplingLayout.effectiveFilter === 'linear'
-						? config.anisotropy
-						: 1
+				maxAnisotropy
 			});
 			let fallbackView: GPUTextureView;
 			let resource: RuntimeTextureResource;

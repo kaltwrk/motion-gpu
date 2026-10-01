@@ -2940,6 +2940,84 @@ describe('createRenderer', () => {
 		expect(textureEntries).toHaveLength(1);
 	});
 
+	it.each([
+		{
+			format: 'rgba8unorm',
+			filter: 'linear',
+			mipmaps: false,
+			anisotropy: 1,
+			expectedMip: 'nearest',
+			expectedFilter: 'linear',
+			expectedAnisotropy: 1
+		},
+		{
+			format: 'rgba8unorm',
+			filter: 'linear',
+			mipmaps: false,
+			anisotropy: 4,
+			expectedMip: 'linear',
+			expectedFilter: 'linear',
+			expectedAnisotropy: 4
+		},
+		{
+			format: 'rgba8unorm',
+			filter: 'linear',
+			mipmaps: true,
+			anisotropy: 4,
+			expectedMip: 'linear',
+			expectedFilter: 'linear',
+			expectedAnisotropy: 4
+		},
+		{
+			format: 'rgba8unorm',
+			filter: 'nearest',
+			mipmaps: false,
+			anisotropy: 4,
+			expectedMip: 'nearest',
+			expectedFilter: 'nearest',
+			expectedAnisotropy: 1
+		},
+		{
+			format: 'r32float',
+			filter: 'linear',
+			mipmaps: false,
+			anisotropy: 4,
+			expectedMip: 'nearest',
+			expectedFilter: 'nearest',
+			expectedAnisotropy: 1
+		}
+	] as const)(
+		'creates a valid anisotropic sampler: $format, $filter, mipmaps=$mipmaps, anisotropy=$anisotropy',
+		async ({
+			format,
+			filter,
+			mipmaps,
+			anisotropy,
+			expectedMip,
+			expectedFilter,
+			expectedAnisotropy
+		}) => {
+			const runtime = createWebGpuRuntime();
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['photo'],
+				textureDefinitions: { photo: { format, filter, generateMipmaps: mipmaps, anisotropy } }
+			});
+			try {
+				expect(runtime.device.createSampler).toHaveBeenCalledWith(
+					expect.objectContaining({
+						magFilter: expectedFilter,
+						minFilter: expectedFilter,
+						mipmapFilter: expectedMip,
+						maxAnisotropy: expectedAnisotropy
+					})
+				);
+			} finally {
+				renderer.destroy();
+			}
+		}
+	);
+
 	it('uses unfilterable fragment texture layout for r32float textures without feature support', async () => {
 		const runtime = createWebGpuRuntime();
 

@@ -3,6 +3,19 @@ import { expect, test } from '@playwright/test';
 
 const proofUrl = `/@fs${fileURLToPath(new URL('../renderer-proof.ts', import.meta.url))}`;
 
+for (const generateMipmaps of [false, true]) {
+	test(`anisotropic sampling renders with mipmaps=${generateMipmaps}`, async ({ page }) => {
+		const pixels = await page.evaluate(
+			async ({ url, generateMipmaps }) => {
+				const proof: typeof import('../renderer-proof') = await import(/* @vite-ignore */ url);
+				return proof.readAnisotropicTexture(generateMipmaps);
+			},
+			{ url: proofUrl, generateMipmaps }
+		);
+		expect(pixels).toEqual([[0, 255, 0, 255]]);
+	});
+}
+
 for (const format of [undefined, 'rgba8unorm-srgb', 'rgba16float'] as const) {
 	test(`runtime texture colorSpace respects ${format ?? 'automatic format'}`, async ({ page }) => {
 		const pixels = await page.evaluate(
