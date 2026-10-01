@@ -1,6 +1,10 @@
+import { createCurrentWritable } from '../src/lib/core/current-value';
+import { createFrameRegistry } from '../src/lib/core/frame-registry';
+import { createSpektralRuntimeLoop } from '../src/lib/core/runtime-loop';
+import { BlitPass } from '../src/lib/passes/BlitPass';
 import { defineMaterial, resolveMaterial, type FragMaterial } from '../src/lib/core/material';
 import { createRenderer } from '../src/lib/core/renderer';
-import type { AnyPass, TextureMap } from '../src/lib/core/types';
+import type { AnyPass, RenderPassContext, TextureMap } from '../src/lib/core/types';
 import { ComputePass } from '../src/lib/passes/ComputePass';
 import { PingPongComputePass } from '../src/lib/passes/PingPongComputePass';
 import { PingPongShaderPass } from '../src/lib/passes/PingPongShaderPass';
@@ -191,5 +195,70 @@ export async function readPremultipliedTexture(premultipliedAlpha: boolean) {
 		];
 	} finally {
 		proof.renderer.destroy();
+	}
+}
+
+/** Destroy an active device and await the submitted replacement frame without advancing again. */
+export async function readDeviceLossRecovery(mode: 'on-demand' | 'manual') {
+	let onFrame: ((device: GPUDevice) => void) | undefined;
+	let frameCount = 0;
+	class ProbePass extends BlitPass {
+		override render(context: RenderPassContext): void {
+			super.render(context);
+			frameCount += 1;
+			onFrame?.(context.device);
+		}
+	}
+	const canvas = document.createElement('canvas');
+	canvas.style.width = canvas.style.height = '16px';
+	document.body.append(canvas);
+	const registry = createFrameRegistry({ renderMode: mode });
+	const material = defineMaterial({
+		fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(0.0, 1.0, 0.0, 1.0); }'
+	});
+	const passes = [new ProbePass()];
+	const reports: string[] = [];
+	const loop = createSpektralRuntimeLoop({
+		canvas,
+		registry,
+		size: createCurrentWritable({ width: 0, height: 0 }),
+		dpr: createCurrentWritable(1),
+		maxDelta: createCurrentWritable(0.1),
+		getMaterial: () => material,
+		getPasses: () => passes,
+		getRenderTargets: () => ({}),
+		getClearColor: () => [0, 0, 0, 1],
+		getAdapterOptions: () => undefined,
+		getDeviceDescriptor: () => undefined,
+		getOnError: () => undefined,
+		reportError: (report) => {
+			if (report) reports.push(report.code);
+		}
+	});
+	const waitForFrame = async (trigger: () => void): Promise<GPUDevice> => {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			return await new Promise<GPUDevice>((resolve, reject) => {
+				onFrame = resolve;
+				timer = setTimeout(
+					() => reject(new Error('Runtime did not submit a recovery frame')),
+					5000
+				);
+				trigger();
+			});
+		} finally {
+			clearTimeout(timer);
+			onFrame = undefined;
+		}
+	};
+	try {
+		const firstDevice = await waitForFrame(loop.advance);
+		await firstDevice.queue.onSubmittedWorkDone();
+		const replacementDevice = await waitForFrame(() => firstDevice.destroy());
+		await replacementDevice.queue.onSubmittedWorkDone();
+		return { deviceChanged: replacementDevice !== firstDevice, frameCount, reports };
+	} finally {
+		loop.destroy();
+		canvas.remove();
 	}
 }

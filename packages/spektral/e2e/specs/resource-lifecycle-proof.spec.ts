@@ -101,3 +101,20 @@ for (const action of ['remove', 'replace', 'remount', 'disable', 'switch-writer'
 		);
 	});
 }
+
+for (const mode of ['on-demand', 'manual'] as const) {
+	test(`device loss recovery submits a replacement frame in ${mode}`, async ({ page }) => {
+		const result = await page.evaluate(
+			async ({ url, mode }) => {
+				const proof: typeof import('../resource-lifecycle-proof') = await import(
+					/* @vite-ignore */ url
+				);
+				return proof.readDeviceLossRecovery(mode);
+			},
+			{ url: proofUrl, mode }
+		);
+		expect(result.deviceChanged).toBe(true);
+		expect(result.frameCount).toBe(2);
+		expect(result.reports).toContain('WEBGPU_DEVICE_LOST');
+	});
+}

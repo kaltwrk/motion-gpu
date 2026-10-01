@@ -143,6 +143,7 @@ export function createSpektralRuntimeLoop(
 	let nextRendererRetryAt = 0;
 	let materialResolveAttempts = 0;
 	let rendererRebuildPromise: Promise<void> | null = null;
+	let needsDeviceRecoveryFrame = false;
 
 	const runtimeUniforms: Record<string, UniformValue> = {};
 	const runtimeTextures: TextureMap = {};
@@ -629,6 +630,10 @@ export function createSpektralRuntimeLoop(
 
 						renderer?.destroy();
 						renderer = nextRenderer;
+						if (needsDeviceRecoveryFrame) {
+							registry.advance();
+							needsDeviceRecoveryFrame = false;
+						}
 						activeRendererSignature = rendererSignature;
 						failedRendererSignature = null;
 						failedRendererAttempts = 0;
@@ -745,6 +750,7 @@ export function createSpektralRuntimeLoop(
 			// Task failures occur before the normal continuation decision.
 			shouldContinueAfterFrame ||= registry.getRenderMode() === 'always';
 			if (renderer && shouldRecreateRendererAfterError(error)) {
+				needsDeviceRecoveryFrame = true;
 				renderer.destroy();
 				renderer = null;
 				activeRendererSignature = '';

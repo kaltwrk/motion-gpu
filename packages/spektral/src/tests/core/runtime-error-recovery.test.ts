@@ -120,6 +120,34 @@ afterEach(() => {
 });
 
 describe.each(['on-demand', 'manual'] as const)('%s error recovery', (mode) => {
+	it.each([false, true])('renders once after device loss recovery (retry=%s)', async (retry) => {
+		const fixture = setup(mode);
+		fixture.loop.advance();
+		await drainFrames();
+		expect(fixture.render).toHaveBeenCalledOnce();
+		const replacement = { render: vi.fn(), destroy: vi.fn(), flushStorageWrites: vi.fn() };
+		createRendererMock.mockResolvedValue(replacement);
+		if (retry)
+			createRendererMock.mockRejectedValueOnce(new Error('adapter temporarily unavailable'));
+		fixture.render.mockImplementationOnce(() => {
+			throw new Error('WebGPU device lost: device reset');
+		});
+		const options = createRendererMock.mock.calls[0]![0] as { requestRender: () => void };
+		options.requestRender();
+		await drainFrames();
+		if (retry) {
+			await elapse(250);
+			await drainFrames();
+		}
+		expect(createRendererMock).toHaveBeenCalledTimes(retry ? 3 : 2);
+		expect(replacement.render).toHaveBeenCalledOnce();
+		fixture.loop.requestFrame();
+		await drainFrames();
+		expect(replacement.render).toHaveBeenCalledOnce();
+		await elapse(750);
+		expect(fixture.lastReport()).toBeNull();
+	});
+
 	it('clears a recovered frame-task error even when the task does not render', async () => {
 		const fixture = setup(mode);
 		await drainFrames();
