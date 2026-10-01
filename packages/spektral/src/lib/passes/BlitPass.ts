@@ -25,7 +25,8 @@ fn spektralBlitVertex(@builtin(vertex_index) index: u32) -> SpektralVertexOut {
 	let position = positions[index];
 	var out: SpektralVertexOut;
 	out.position = vec4f(position, 0.0, 1.0);
-	out.uv = (position + vec2f(1.0, 1.0)) * 0.5;
+	// Clip-space Y points up; texture-space Y points down.
+	out.uv = vec2f(position.x * 0.5 + 0.5, 0.5 - position.y * 0.5);
 	return out;
 }
 
