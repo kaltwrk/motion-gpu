@@ -18,8 +18,9 @@ test('landing actions enter the existing docs and playground shell', async ({ pa
 
 test('FAQ supports keyboard interaction and independent expanded answers', async ({ page }) => {
 	await page.goto('/#faq');
-	const first = page.getByRole('button', { name: 'What is Spektral?', exact: true });
-	const second = page.getByRole('button', { name: 'Who is it for?', exact: true });
+	const questions = page.locator('#faq').getByRole('button');
+	const first = questions.nth(0);
+	const second = questions.nth(1);
 	await expect(first).toBeEnabled();
 	await first.press('Enter');
 	await expect(first).toHaveAttribute('aria-expanded', 'true');
@@ -28,19 +29,18 @@ test('FAQ supports keyboard interaction and independent expanded answers', async
 	await second.press('Space');
 	await expect(second).toHaveAttribute('aria-expanded', 'true');
 	await expect(first).toHaveAttribute('aria-expanded', 'true');
-	await expect(
-		page.getByText(
-			'It is built for developers who want modern, high-performance visual effects without building a rendering stack from scratch.'
-		)
-	).toBeVisible();
+	const answerId = await second.getAttribute('aria-controls');
+	if (!answerId) throw new Error('The FAQ question must reference its answer.');
+	await expect(page.locator(`[id="${answerId}"]`)).toBeVisible();
 });
 
 test('FAQ keyboard focus covers the question row without shifting its chevron', async ({
 	page
 }) => {
 	await page.goto('/#faq');
-	const first = page.getByRole('button', { name: 'What is Spektral?', exact: true });
-	const second = page.getByRole('button', { name: 'Who is it for?', exact: true });
+	const questions = page.locator('#faq').getByRole('button');
+	const first = questions.nth(0);
+	const second = questions.nth(1);
 	await expect(first).toBeEnabled();
 
 	for (const width of [390, 1280]) {
