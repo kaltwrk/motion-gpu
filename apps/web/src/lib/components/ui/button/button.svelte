@@ -7,7 +7,7 @@
 		base: "focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 rounded-lg bg-clip-padding text-sm font-medium focus-visible:ring-3 aria-invalid:ring-3 active:not-aria-[haspopup]:scale-[0.96] [&_svg:not([class*='size-'])]:size-4 group/button inline-flex shrink-0 duration-150 items-center justify-center whitespace-nowrap transition-all outline-none select-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
 		variants: {
 			variant: {
-				default: "isolate text-white hover:saturate-110 bg-linear-to-b from-primary to-primary-to shadow-md ring ring-(--ring-color) [--ring-color:color-mix(in_oklab,var(--color-foreground)5%,var(--color-primary))]",
+				default: "isolate text-white hover:saturate-110 bg-linear-to-b from-primary to-primary-to shadow-md",
 				outline: "bg-background hover:bg-muted hover:text-foreground dark:bg-input/30 dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground shadow-2xs",
 				secondary: "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
 				ghost: "hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 aria-expanded:bg-muted aria-expanded:text-foreground",
