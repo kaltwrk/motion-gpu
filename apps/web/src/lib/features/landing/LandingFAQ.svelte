@@ -17,8 +17,8 @@
 	<LandingSectionHeader
 		id="faq-title"
 		label="FAQ"
-		title="Common questions before you build."
-		description="A quick introduction to what Spektral is, who it is for, and how to begin."
+		title="Before you add it to your app."
+		description="Check the requirements and limits before choosing Spektral."
 		icon={CircleQuestionIcon}
 	/>
 	<LandingPanel>

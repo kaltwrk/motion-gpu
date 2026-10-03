@@ -9,7 +9,6 @@ import {
 	CubeIcon
 } from '$lib/icons';
 
-// Landing copy and section order preserved from the main branch's home components.
 // This product page is independent of the docs/workspace template configuration.
 export const navigation = [
 	{ label: 'Home', href: '#home' },
@@ -112,38 +111,33 @@ export const steps = [
 
 export const faqItems = [
 	{
-		question: 'What is Spektral?',
+		question: 'Which frameworks can I use it with?',
 		answer:
-			'Spektral is a minimalist WebGPU framework for building fast fullscreen shader visuals. It gives you a clean path from a single effect to a complete GPU-driven visual layer in your app.'
+			'Spektral has adapters for Svelte 5, React 19, and Vue 3.5. Each uses the same core runtime, so your shader and material definitions carry across frameworks. You can also use the core directly without a UI framework.'
 	},
 	{
-		question: 'Who is it for?',
+		question: 'How much shader code do I need to write?',
 		answer:
-			'It is built for developers who want modern, high-performance visual effects without building a rendering stack from scratch.'
+			'You provide the shader logic; Spektral handles WebGPU setup, GPU resources, and the render loop. Start from a playground example and edit its WGSL, or use TypeGPU to generate WGSL from TypeScript.'
 	},
 	{
-		question: 'Do I need WebGPU knowledge to use it?',
+		question: 'What happens when WebGPU is unavailable?',
 		answer:
-			'No. You can start with a minimal shader and iterate quickly. As your project grows, Spektral still gives you full control over uniforms, textures, render flow, and post-processing.'
+			'Spektral requires WebGPU and a secure context such as HTTPS or localhost. There is no WebGL fallback. Initialization failures reach your onError callback, where your app can choose to show a static image or another alternative.'
 	},
 	{
-		question: 'How quickly can I ship something with it?',
+		question: 'Does the effect have to fill the whole page?',
 		answer:
-			'You can usually get a first visual running in minutes: install, define a material, mount FragCanvas, then tune in the playground and docs.'
+			'FragCanvas fills its container, and you control that container with CSS. An effect can live inside a small card or cover an entire page. Fullscreen rendering means the shader covers the canvas, whatever size you give it.'
 	},
 	{
-		question: 'Is it production-friendly?',
+		question: 'Does it need to render every frame?',
 		answer:
-			'Yes. Spektral is designed for predictable behavior, explicit runtime control, and clear diagnostics so teams can move from prototype to production with confidence.'
+			'Continuous rendering is the default. For effects that only change on interaction, use on-demand rendering and request a frame when needed. Manual mode lets you advance rendering explicitly, for example when capturing an image. These modes control GPU rendering; the scheduler still runs.'
 	},
 	{
-		question: 'Is this a general 3D engine?',
+		question: 'Can I use it as a 3D engine?',
 		answer:
-			'No. Spektral focuses on fullscreen fragment workflows and post-processing pipelines. If you need full scene graphs and 3D tooling, pair it with a dedicated 3D engine.'
-	},
-	{
-		question: 'Where should I start first?',
-		answer:
-			'Start with the Playground for instant feedback, then follow Getting Started to move into real app code and production patterns.'
+			'Spektral has no scene graph, mesh system, or built-in cameras. It suits effects drawn in a shader, including raymarched scenes, image processing, and simulations. If you need to load 3D models and arrange a scene, choose a dedicated 3D engine.'
 	}
 ] as const;

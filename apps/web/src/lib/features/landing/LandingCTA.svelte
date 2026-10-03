@@ -16,13 +16,19 @@
 					id="cta-title"
 					class="text-3xl leading-tight font-medium tracking-tight text-balance sm:text-4xl"
 				>
-					Bring your shader pipeline to <span class="text-primary">production</span>.
+					Start with a <span class="text-primary">working shader</span>.
 				</h2>
 				<p class="max-w-xl text-base leading-relaxed text-pretty text-muted-foreground">
-					Open the playground to iterate fast, then move to docs for strict contracts, render
-					passes, and deterministic frame scheduling.
+					Open an editable example in Svelte, React, or Vue. Change the shader and preview the
+					result, then follow the setup guide to use Spektral in your app.
 				</p>
-				<div class="mt-2"><LandingActions /></div>
+				<div class="mt-2">
+					<LandingActions
+						playgroundLabel="Try an example"
+						docsLabel="Read the setup guide"
+						docsSlug="getting-started"
+					/>
+				</div>
 			</div>
 		</div>
 	</Card.Root>
