@@ -12,6 +12,8 @@
 
 	let { demoId }: { demoId: string } = $props();
 	const demo = $derived(getPlaygroundPage(demoId));
+	const requestedFramework = () =>
+		new URL(window.location.href).searchParams.get('framework') ?? frameworkStore.active;
 
 	const syncLocationFromController = () => {
 		if (typeof window === 'undefined' || !controller) return;
@@ -47,7 +49,7 @@
 
 	afterNavigate(() => {
 		if (!controller) return;
-		controller.switchFramework(page.url.searchParams.get('framework') ?? frameworkStore.active);
+		controller.switchFramework(requestedFramework());
 		frameworkStore.active = controller.activeFramework as Framework;
 		syncLocationFromController();
 	});
@@ -80,10 +82,7 @@
 			if (!mounted) return;
 
 			PlaygroundView = LoadedPlaygroundView;
-			controller = createPlaygroundController(
-				demoId,
-				page.url.searchParams.get('framework') ?? frameworkStore.active
-			);
+			controller = createPlaygroundController(demoId, requestedFramework());
 			await tick();
 			if (!mounted || !controller) return;
 			disposeController = controller.mount();

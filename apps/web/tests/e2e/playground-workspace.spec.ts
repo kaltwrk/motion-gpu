@@ -61,6 +61,11 @@ test('keeps files, frameworks and demo navigation available in the compact works
 	).toHaveAttribute('aria-current', 'page');
 	await page.goForward();
 	await expect(page).toHaveURL('/playground/diamond?framework=vue');
+	await page.reload();
+	await expect(files.getByRole('button', { name: 'App.vue', exact: true })).toHaveAttribute(
+		'aria-pressed',
+		'true'
+	);
 	await expect(page.locator('[data-playground-shell] > header')).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Choose demo' })).toHaveCount(0);
 
