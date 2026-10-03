@@ -13,7 +13,7 @@ icon collection. Brand and framework logos retain their separate sources below.
 
 ## UI Outline 18 sources
 
-All 24 interface icons were copied from the published npm package
+All 36 interface icons were copied from the published npm package
 [`nucleo-ui-outline-18@1.5.1`](https://www.npmjs.com/package/nucleo-ui-outline-18/v/1.5.1).
 The audited source is the npm tarball, not a local SVG export or the Essential set:
 
@@ -29,6 +29,18 @@ attribute names are converted to SVG attribute names. `IconRoot` supplies the
 
 | Component | Original npm export |
 | --- | --- |
+| `CubesIcon` | `IconCubesOutline18` |
+| `LayersIcon` | `IconLayersOutline18` |
+| `CubeAxisIcon` | `IconCubeAxisOutline18` |
+| `TriangleWarningIcon` | `IconTriangleWarningOutline18` |
+| `CodeIcon` | `IconCodeOutline18` |
+| `DatabaseIcon` | `IconDatabaseOutline18` |
+| `TouchClickIcon` | `IconTouchClickOutline18` |
+| `CubeIcon` | `IconCubeOutline18` |
+| `WorkflowIcon` | `IconWorkflowOutline18` |
+| `Grid2x2Icon` | `IconGrid2x2Outline18` |
+| `CircleQuestionIcon` | `IconCircleQuestionOutline18` |
+| `Menu2Icon` | `IconMenu2Outline18` |
 | `ArrowLeftIcon` | `IconArrowLeftOutline18` |
 | `ArrowRightIcon` | `IconArrowRightOutline18` |
 | `ArrowRotateClockwiseIcon` | `IconArrowRotateClockwiseOutline18` |

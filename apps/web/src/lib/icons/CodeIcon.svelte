@@ -1,0 +1,15 @@
+<!--
+Source: nucleo-ui-outline-18@1.5.1 (npm), dist/components/IconCodeOutline18.js
+Original name: IconCodeOutline18
+https://www.npmjs.com/package/nucleo-ui-outline-18/v/1.5.1
+-->
+<script lang="ts">
+	import IconRoot from './IconRoot.svelte';
+	import type { IconProps } from './types';
+	let { strokeWidth = 1.5, ...props }: IconProps = $props();
+</script>
+
+<IconRoot {...props}>
+<polyline points="6.5 13.75 1.75 9 6.5 4.25" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width={strokeWidth} />
+<polyline points="11.5 13.75 16.25 9 11.5 4.25" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width={strokeWidth} data-color="color-2" />
+</IconRoot>
