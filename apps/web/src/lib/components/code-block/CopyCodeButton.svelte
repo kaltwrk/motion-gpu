@@ -5,6 +5,7 @@
 	import { CopyFeedbackIcon } from '$lib/components/copy-feedback';
 	import { Button, type ButtonSize } from '$lib/components/ui/button';
 	import { CopyIcon } from '$lib/icons';
+	import { cn } from "$lib/utils.js";
 
 	type Props = {
 		value: string;
@@ -65,7 +66,7 @@
 			type="button"
 			variant="ghost"
 			{size}
-			class={className}
+			class={cn("text-muted-foreground", className)}
 			data-copied={copied}
 			aria-label={tooltipLabel}
 			onclick={copy}
