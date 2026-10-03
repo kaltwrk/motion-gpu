@@ -90,6 +90,7 @@
 			{#each frameworks as framework (framework)}
 				<Tabs.Content
 					value={framework}
+					tabindex={-1}
 					class="docs-framework-content rounded-lg bg-card shadow-sm"
 					data-framework={framework}
 					data-default={framework === 'svelte' ? 'true' : undefined}

@@ -68,7 +68,7 @@
 			/>
 		</div>
 		{#each packageManagers as manager (manager)}
-			<Tabs.Content value={manager} class="rounded-lg bg-card shadow-sm">
+			<Tabs.Content value={manager} tabindex={-1} class="rounded-lg bg-card shadow-sm">
 				<CodeBlock
 					code={commands[manager]}
 					htmlLight={highlighted[manager].light}
