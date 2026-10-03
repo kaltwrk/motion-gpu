@@ -1,0 +1,203 @@
+---
+title: Passes API
+description: Constructor options and runtime methods for render, compute, and feedback passes.
+---
+
+Pass classes are framework-neutral and exported from root, core, and adapter entrypoints.
+
+## Shared render-pass options
+
+`ShaderPass`, `BlitPass`, and `CopyPass` share:
+
+| Option | Default |
+| --- | --- |
+| `label` | — |
+| `enabled` | `true` |
+| `needsSwap` | `true` |
+| `input` | `'source'` |
+| `output` | `'target'` when swapping, otherwise `'source'` |
+| `clear` | `false` |
+| `clearColor` | `[0, 0, 0, 1]` |
+| `preserve` | `true` |
+| `filter` | `'linear'` |
+
+`needsSwap: true` is valid only for `source → target`. `canvas` is output-only. Named slots must exist and be written before use.
+
+## `ShaderPass`
+
+Requires `fragment` containing:
+
+```wgsl
+fn shade(inputColor: vec4f, uv: vec2f) -> vec4f
+```
+
+Public methods:
+
+```ts
+setFragment(fragment: string): void
+getFragment(): string
+```
+
+`setFragment` validates the source contract, then starts asynchronous preparation for active target
+formats. The last-known-good pipeline stays active until the newest source compiles. A failed edit is
+reported as recoverable; it does not replace the current output.
+
+`shade` and any helper it calls can read the current pass coordinates from `spektralFragment.uv`. The existing `uv` parameter remains required.
+
+## `BlitPass` and `CopyPass`
+
+`BlitPass` samples its input with the configured filter. `CopyPass` attempts a direct GPU copy and otherwise uses an internal blit. Direct copy requires no clear, preserved output, distinct non-canvas textures, and equal dimensions and formats.
+
+Both expose `setSize`, `render`, and `dispose` through the render-pass lifecycle.
+
+## `ComputePass`
+
+```ts
+new ComputePass({
+	label?: string,
+	compute: string,
+	workgroupSize?: [number, number?, number?],
+	resources?: ComputeResourceMap,
+	dispatch?: tuple | 'auto' | (context) => [number, number, number],
+	enabled?: boolean
+})
+```
+
+The source requires `@compute`, `@workgroup_size(...)`, a `compute` function, and `@builtin(global_invocation_id)` in its signature. Literal dimensions are inferred. Set `workgroupSize` when WGSL uses an override or non-literal constant expression; it must match literal WGSL when both are present.
+
+`resources` is keyed by WGSL alias. An omitted map is equivalent to `{}`; no material storage resource is injected implicitly.
+
+```ts
+type ComputeResourceDescriptor =
+	| {
+			texture: string | ComputeExternalTextureReference | ComputeExternalTextureViewReference;
+			access: 'sampled';
+			view?: ComputeTextureViewDescriptor;
+			version?: 'current' | 'initial';
+			pingPong?: 'read';
+	  }
+	| {
+			texture: string | ComputeExternalTextureReference | ComputeExternalTextureViewReference;
+			access: 'storage-write';
+			view?: ComputeTextureViewDescriptor;
+			pingPong?: 'write';
+	  }
+	| {
+			buffer: string | ComputeExternalBufferReference;
+			access: 'storage-read';
+			version?: 'current' | 'initial';
+	  }
+	| {
+			buffer: string | ComputeExternalBufferReference;
+			access: 'storage-read-write';
+	  }
+	| { sampler: string | ComputeExternalSamplerReference };
+```
+
+Texture views support `baseMipLevel`, `mipLevelCount`, `baseArrayLayer`, and `arrayLayerCount: 1`. String references are material keys. External references are borrowed typed objects with a stable `resourceId`; see [Compute Shaders](/docs/compute-shaders#borrowed-webgpu-resources) for their metadata and ownership contract.
+
+```ts
+setCompute(source, { workgroupSize? }): void
+setDispatch(dispatch): void
+getCompute(): string
+getResources(): ComputeResourceMap
+getWorkgroupSize(): [number, number, number]
+resolveDispatch(context): [number, number, number]
+dispose(): void
+```
+
+`isCompute` is a readonly `true` discriminant for inspection. It is not an extension point: custom
+compute objects are rejected by the render graph.
+
+`label` is optional and immutable. Diagnostics and graph snapshots use it when present, otherwise
+they derive a deterministic label from the pass kind and declaration index.
+
+## `PingPongComputePass`
+
+Requires `resources`, accepts a positive-integer `iterations` (default `1`), and adds the `isPingPong` discriminant. The map must contain exactly one sampled `pingPong: 'read'` descriptor and one storage-write `pingPong: 'write'` descriptor. Both point to the same storage texture.
+
+```ts
+new PingPongComputePass({
+	label: 'Velocity iterations',
+	compute,
+	resources: {
+		previous: { texture: 'velocity', access: 'sampled', pingPong: 'read' },
+		next: { texture: 'velocity', access: 'storage-write', pingPong: 'write' },
+		obstacles: { texture: 'obstacles', access: 'sampled' }
+	},
+	iterations: 8,
+	dispatch: 'auto'
+});
+```
+
+The renderer keeps A/B names and parity private. It publishes the latest result under the logical material key after the iteration batch.
+
+`workgroupSize` has the same override/non-literal behavior as `ComputePass`.
+
+```ts
+setIterations(count): void
+setCompute(source, { workgroupSize? }): void
+setDispatch(dispatch): void
+getIterations(): number
+getCompute(): string
+getResources(): ComputeResourceMap
+getWorkgroupSize(): [number, number, number]
+resolveDispatch(context): [number, number, number]
+dispose(): void
+```
+
+## `PingPongShaderPass`
+
+Runs a pre-scene fragment shader with `fn frag(uv: vec2f) -> vec4f`. `target` must be a declared, fragment-visible, non-storage material texture.
+
+| Option | Default |
+| --- | --- |
+| `label` | — |
+| `width`, `height` | Canvas axis multiplied by `scale` |
+| `scale` | `1` |
+| `format` | `'rgba16float'` |
+| `filter` | `'linear'` |
+| `addressModeU/V` | `'clamp-to-edge'` |
+| `iterations` | `1` |
+| `clearColor` | `[0, 0, 0, 0]` |
+| `defines`, `includes` | `{}` |
+| `enabled` | `true` |
+
+Dimensions and scale must be finite and positive, iterations a positive integer, and format float-sampled.
+
+```ts
+setFragment(fragment, { defines?, includes? }?): void
+setIterations(count): void
+setDimensions(width?, height?): void
+setScale(scale): void
+reset(clearColor?): void
+consumeResetColor(): RGBA | null
+getCurrentOutput(): string
+advanceFrame(): void
+resolveSize(canvasSize): { width, height }
+getTarget(): string
+getFragment(): string
+getFragmentLineMap(): MaterialLineMap
+getIterations(): number
+getFormat(): GPUTextureFormat
+getFilter(): GPUFilterMode
+getAddressModeU(): GPUAddressMode
+getAddressModeV(): GPUAddressMode
+getClearColor(): RGBA
+dispose(): void
+```
+
+`isPingPongShader` is a readonly `true` discriminant for inspection, not a structural extension
+point. `setDimensions`, `setScale`, and `reset` request A/B reinitialization;
+`consumeResetColor` is renderer-facing and clears that pending request.
+
+When a pass instance is shared by multiple canvases, each renderer's texture pair has independent
+iteration and reset state. `reset()` applies to every pair on its next render.
+`getCurrentOutput()` reports the A/B key for the most recently rendered pair.
+
+Custom `RenderPass` objects may also expose a readonly `label?: string`. Spektral uses the same
+labeling rule for built-in and custom passes.
+
+`frag` and its helper functions can read the ping-pong target coordinates from `spektralFragment.uv`. They use the pass target dimensions and the same public Y-up orientation as the `uv` parameter.
+
+See [Render Passes](/docs/render-passes), [Compute Shaders](/docs/compute-shaders), and the [Ping-pong Fluid demo](/playground/ping-pong-fluid?framework=svelte).

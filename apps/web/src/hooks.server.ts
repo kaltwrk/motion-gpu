@@ -1,23 +1,23 @@
 import type { Handle } from '@sveltejs/kit';
 
-const SITE_REDIRECT_HOSTS = new Set([
-	'motion-gpu.dev',
-	'www.motion-gpu.dev',
-	'www.spektral.madebyhex.com'
-]);
-const LEGACY_PREVIEW_HOST = 'preview.motion-gpu.dev';
-const SPEKTRAL_SITE_HOST = 'spektral.madebyhex.com';
-const SPEKTRAL_PREVIEW_HOST = 'preview.spektral.madebyhex.com';
+import { siteConfig } from '$lib/site/site';
+import { contentUiDefaults } from '$lib/site/content-ui';
+
+const preferencesJson = JSON.stringify({
+	theme: contentUiDefaults.theme,
+	packageManager: contentUiDefaults.packageManager,
+	framework: contentUiDefaults.framework
+}).replaceAll('<', '\\u003c');
 
 export function resolveLegacyRedirect(url: URL): URL | null {
 	let targetHost: string | null = null;
-	if (SITE_REDIRECT_HOSTS.has(url.hostname)) {
-		targetHost = SPEKTRAL_SITE_HOST;
-	} else if (url.hostname === LEGACY_PREVIEW_HOST) {
-		targetHost = SPEKTRAL_PREVIEW_HOST;
+	if (siteConfig.redirects.siteHosts.includes(url.hostname)) {
+		targetHost = new URL(siteConfig.url).host;
+	} else if (siteConfig.redirects.previewHosts.includes(url.hostname)) {
+		targetHost = new URL(siteConfig.preview.origin).host;
 	}
 
-	if (!targetHost) return null;
+	if (!targetHost || targetHost === url.host) return null;
 
 	const target = new URL(url);
 	target.protocol = 'https:';
@@ -34,5 +34,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 		});
 	}
 
-	return resolve(event);
+	return resolve(event, {
+		transformPageChunk: ({ html }) =>
+			html
+				.replace('%site.language%', siteConfig.language.replace(/[^a-zA-Z0-9-]/g, ''))
+				.replace('%site.preferences%', () => preferencesJson)
+	});
 };

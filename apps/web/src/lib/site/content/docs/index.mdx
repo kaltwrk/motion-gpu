@@ -1,0 +1,41 @@
+---
+title: Spektral documentation
+description: Framework-agnostic WebGPU rendering with Svelte 5, React 19, and Vue 3 adapters.
+---
+
+Spektral is a framework-agnostic WebGPU runtime for fullscreen fragment rendering, post-processing, fragment feedback, and compute workloads. Svelte 5, React 19, and Vue 3 adapters expose the same runtime through `<FragCanvas>` and context-bound hooks.
+
+Use the documentation for contracts and runtime behavior. Use the [playground](/playground) to edit complete examples with hot reload.
+
+## Runtime model
+
+1. Create an immutable material with `defineMaterial(...)`.
+2. Mount it in the adapter-specific `FragCanvas`.
+3. Register per-frame work with `useFrame(...)` inside the canvas subtree.
+4. Before each render, Spektral applies runtime uniform, texture, and storage-buffer updates.
+5. Compute and fragment-feedback passes run before the material shader. Render passes run after it.
+6. The final result is presented to the canvas, optionally through the color pipeline.
+
+Changes to shader source or resource layout rebuild the renderer. Runtime value changes update existing GPU resources instead. [Concepts & Architecture](/docs/concepts-and-architecture) defines the complete lifecycle and rebuild boundary.
+
+## Shader contracts
+
+| API                  | Required WGSL entrypoint                                                                                        |
+| -------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Material             | `fn frag(uv: vec2f) -> vec4f`                                                                                   |
+| `ShaderPass`         | `fn shade(inputColor: vec4f, uv: vec2f) -> vec4f`                                                               |
+| `PingPongShaderPass` | `fn frag(uv: vec2f) -> vec4f`                                                                                   |
+| Compute passes       | `@compute @workgroup_size(...) fn compute(...)` with `@builtin(global_invocation_id)` in the function signature |
+
+Material and fullscreen-pass shaders return straight-alpha colors. Spektral premultiplies the final canvas output for its premultiplied WebGPU canvas configuration.
+
+## Scope
+
+- Spektral targets fullscreen fragment and GPU compute workflows. It is not a scene graph or 3D engine.
+- Import framework components and hooks from `/svelte`, `/react`, or `/vue`.
+- Root and `/core` entrypoints are framework-neutral.
+- `/advanced` entrypoints add scheduler helpers and namespaced user context APIs.
+
+## AI access
+
+The documentation is also available through [Context7](https://context7.com/kaltwrk/spektral).

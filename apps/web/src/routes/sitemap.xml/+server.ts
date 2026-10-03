@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types';
-import { siteConfig } from '$lib';
-import { contentSections } from '$lib/config/navigation';
+import { siteConfig } from '$lib/site/site';
+import { contentSections } from '$lib/site/views';
 import { getContentSectionHref, getContentSectionManifest } from '$lib/content/sections';
 
 type SitemapEntry = {

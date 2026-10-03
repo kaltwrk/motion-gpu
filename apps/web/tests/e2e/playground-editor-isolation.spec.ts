@@ -5,7 +5,7 @@ test('isolates the preview process while the editor scrolls and edits a long sha
 	browserName
 }) => {
 	test.skip(browserName !== 'chromium', 'Process inspection uses the Chromium DevTools protocol.');
-	await page.goto('/playground?demo=blood-moon&framework=react');
+	await page.goto('/playground/blood-moon?framework=react');
 	await expect(page.getByText('Preview ready', { exact: true })).toBeVisible();
 	const iframe = page.locator('iframe[title="Playground preview"]');
 	const previewUrl = await iframe.getAttribute('src');

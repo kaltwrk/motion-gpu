@@ -16,8 +16,10 @@ Add a new demo by creating a folder in this directory:
 Rules:
 
 - `<demo-id>` should be kebab-case (for example `flow-field`).
-- The UI label is generated automatically from the folder name (`flow-field` -> `Flow Field`).
-- Demos are discovered automatically at build time.
+- Register the demo ID, URL slug and title in `../playground.ts`. Its order there is its sidebar order.
+- Add `../content/playground/<slug>.svelte`, following an existing entry such as `diamond.svelte`. Each page renders the shared `PlaygroundPage`; the editor is implemented once.
+- Source files are discovered at build time. Every source folder must have a matching registration.
+- Use an empty slug for the index demo and name its content page `index.svelte`.
 - All framework variants are required for every demo (`svelte`, `react`, `vue`).
 
 Example:

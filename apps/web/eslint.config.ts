@@ -83,9 +83,7 @@ export default defineConfig(
 			'src/lib/playground-engine/**',
 			'src/playground-demo-shims.d.ts',
 			'src/lib/site/demos/**',
-			'src/routes/playground/demos/**',
-			'src/lib/features/playground/runtime-template/**',
-			'src/routes/playground/runtime-template/**'
+			'src/lib/features/playground/runtime-template/**'
 		]
 	},
 	{

@@ -6,7 +6,7 @@ const appRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 export const webLintCoverageExpectations = [
 	{
-		file: 'src/lib/config/site.ts',
+		file: 'src/lib/site/site.ts',
 		parser: 'typescript-eslint/parser',
 		rules: ['no-debugger', 'no-restricted-imports', '@typescript-eslint/no-floating-promises']
 	},
@@ -66,7 +66,7 @@ async function assertMutationCoverage(eslint) {
 }
 
 run();`;
-	const [typedResult] = await eslint.lintText(typedSource, { filePath: 'src/lib/config/site.ts' });
+	const [typedResult] = await eslint.lintText(typedSource, { filePath: 'src/lib/site/site.ts' });
 	const typedRules = new Set(typedResult.messages.map(({ ruleId }) => ruleId));
 
 	for (const rule of ['no-debugger', '@typescript-eslint/no-floating-promises']) {

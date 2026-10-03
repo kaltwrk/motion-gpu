@@ -1,7 +1,8 @@
 import type { RequestHandler } from './$types';
-import { siteConfig } from '$lib';
-import { contentSections } from '$lib/config/navigation';
+import { siteConfig } from '$lib/site/site';
+import { contentSections } from '$lib/site/views';
 import {
+	getContentSectionRawSource,
 	getContentSectionHref,
 	getContentSectionManifest,
 	getContentSectionMetadata,
@@ -58,12 +59,14 @@ export const GET: RequestHandler = () => {
 
 	const sectionBlocks = contentSections.flatMap((section) => {
 		const entries = dedupeEntries(
-			getContentSectionManifest(section.id).map((item) => ({
-				sectionId: section.id,
-				sectionLabel: section.label,
-				slug: item.slug,
-				fallbackTitle: item.name
-			}))
+			getContentSectionManifest(section.id)
+				.filter((item) => getContentSectionRawSource(section.id, item.slug) !== null)
+				.map((item) => ({
+					sectionId: section.id,
+					sectionLabel: section.label,
+					slug: item.slug,
+					fallbackTitle: item.name
+				}))
 		);
 
 		return buildSection(

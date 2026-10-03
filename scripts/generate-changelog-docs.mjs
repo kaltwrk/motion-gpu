@@ -13,6 +13,7 @@ const targetPath = path.join(
 	'web',
 	'src',
 	'lib',
+	'site',
 	'content',
 	'docs',
 	'changelog.svx'

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 for (const framework of ['svelte', 'react', 'vue']) {
 	test(`keeps typing focused through repeated shader errors (${framework})`, async ({ page }) => {
-		await page.goto(`/playground?demo=spektral-logo&framework=${framework}`);
+		await page.goto(`/playground?framework=${framework}`);
 		await expect(page.getByText('Preview ready', { exact: true })).toBeVisible();
 		await page.getByRole('button', { name: 'fragment.wgsl', exact: true }).click();
 
@@ -67,7 +67,7 @@ fn frag(uv: vec2f) -> vec4f {
 test('preserves Spektral overlay styles after an incremental playground build', async ({
 	page
 }) => {
-	await page.goto('/playground?demo=spektral-logo&framework=react');
+	await page.goto('/playground?framework=react');
 	await expect(page.getByText('Preview ready', { exact: true })).toBeVisible();
 
 	const iframeHandle = await page.locator('iframe[title="Playground preview"]').elementHandle();

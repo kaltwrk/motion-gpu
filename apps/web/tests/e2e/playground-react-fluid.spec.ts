@@ -10,12 +10,12 @@ test('React fluid demo tracks pointer input with the supported React runtime', a
 	});
 	page.on('pageerror', (error) => diagnostics.push(error.message));
 
-	await page.goto('/playground?demo=ping-pong-fluid&framework=react');
+	await page.goto('/playground/ping-pong-fluid?framework=react');
 	await expect(page.getByText('Preview ready', { exact: true })).toBeVisible();
 
 	// Observe the state consumed by the real demo, rather than accepting a static canvas as success.
 	const runtimeSource = readFileSync(
-		new URL('../../src/routes/playground/demos/ping-pong-fluid/react/runtime.tsx', import.meta.url),
+		new URL('../../src/lib/site/demos/ping-pong-fluid/react/runtime.tsx', import.meta.url),
 		'utf8'
 	)
 		.replace(

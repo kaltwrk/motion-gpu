@@ -119,21 +119,19 @@ const highlighter = await createHighlighter({
 });
 
 const markdownLayout = fileURLToPath(
-	new URL('./src/lib/components/docs/MarkdownLayout.svelte', import.meta.url)
+	new URL('./src/lib/features/docs/MarkdownLayout.svelte', import.meta.url)
 );
 
 const config: Config = {
-	extensions: ['.svelte', '.svx'],
+	extensions: ['.svelte', '.svx', '.mdx', '.md'],
 	// Consult https://svelte.dev/docs/kit/integrations
 	// for more information about preprocessors
 	preprocess: [
 		mdsvex({
-			extensions: ['.svx'],
+			extensions: ['.svx', '.mdx', '.md'],
 			layout: {
 				_: markdownLayout
 			},
-			// @ts-expect-error - plugin type is structurally compatible at runtime;
-			// typing it precisely would require changing unified/mdsvex generics.
 			rehypePlugins: [tableCellFormatter, rehypeSlug],
 			highlight: {
 				highlighter: (code: string, lang: string | null = 'text') => {
@@ -156,7 +154,7 @@ const config: Config = {
 					const htmlDarkProp = JSON.stringify(darkHtml);
 					const langProp = JSON.stringify(lang);
 					const rawProp = JSON.stringify(code);
-					return `<svelte:component this={Reflect.get(globalThis, "__MarkdownPre")} lang={${langProp}} htmlLight={${htmlLightProp}} htmlDark={${htmlDarkProp}} raw={${rawProp}} />`;
+					return `<svelte:component this={Reflect.get(globalThis, "__DocsMarkdownPre")} lang={${langProp}} htmlLight={${htmlLightProp}} htmlDark={${htmlDarkProp}} raw={${rawProp}} />`;
 				}
 			}
 		}),

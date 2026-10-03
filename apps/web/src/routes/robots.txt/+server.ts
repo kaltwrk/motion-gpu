@@ -1,5 +1,5 @@
 import type { RequestHandler } from './$types';
-import { siteConfig } from '$lib';
+import { siteConfig } from '$lib/site/site';
 
 const directives = ['User-agent: *', 'Allow: /'];
 

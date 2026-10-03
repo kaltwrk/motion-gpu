@@ -1,4 +1,4 @@
-import layoutCss from '../../routes/layout.css?raw';
+import layoutCss from '../site/theme.css?raw';
 
 type OgThemeColors = {
 	backgroundInset: string;
@@ -13,7 +13,7 @@ export function extractCustomProperties(css: string, selector: string): Map<stri
 	const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 	const blockMatch = new RegExp(`${escapedSelector}\\s*\\{([\\s\\S]*?)\\}`).exec(css);
 
-	if (!blockMatch) throw new Error(`Could not find the ${selector} theme block in layout.css`);
+	if (!blockMatch) throw new Error(`Could not find the ${selector} theme block in site/theme.css`);
 
 	const properties = new Map<string, string>();
 	const propertyPattern = /(--[\w-]+)\s*:\s*([^;]+);/g;
@@ -101,12 +101,12 @@ const darkThemeProperties = new Map([
 ]);
 
 const resolveTheme = (properties: Map<string, string>): OgThemeColors => ({
-	backgroundInset: resolveCustomProperty('--background-inset', properties),
+	backgroundInset: resolveCustomProperty('--background', properties),
 	background: resolveCustomProperty('--background', properties),
 	foreground: resolveCustomProperty('--foreground', properties),
-	foregroundMuted: resolveCustomProperty('--foreground-muted', properties),
-	accent: resolveCustomProperty('--accent', properties),
-	shadowHighlight: resolveCustomProperty('--shadow-highlight-color', properties)
+	foregroundMuted: resolveCustomProperty('--muted-foreground', properties),
+	accent: resolveCustomProperty('--primary', properties),
+	shadowHighlight: resolveCustomProperty('--card', properties)
 });
 
 export const ogThemeColors = {

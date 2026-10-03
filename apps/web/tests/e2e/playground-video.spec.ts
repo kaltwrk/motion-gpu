@@ -5,7 +5,7 @@ test('streams origin-clean video into an opaque playground preview', async ({ pa
 		response.url().endsWith('/playground-media/data-mosh-neon-dancer.webm')
 	);
 
-	await page.goto('/playground?demo=data-mosh&framework=svelte');
+	await page.goto('/playground/data-mosh?framework=svelte');
 	await expect(page.getByText('Preview ready', { exact: true })).toBeVisible();
 
 	const mediaResponse = await mediaResponsePromise;

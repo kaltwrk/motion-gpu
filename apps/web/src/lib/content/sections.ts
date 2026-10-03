@@ -1,6 +1,7 @@
-import type { ContentItem, ContentSectionLink } from '$lib/config/navigation';
-import { contentSections, type ContentSectionConfig } from '$lib/config/navigation';
-import { mergeSectionUiConfig, type SectionUiConfig } from '$lib/config/content-ui';
+import { validateContentSections } from './validate';
+import type { ContentItem } from '$lib/site/views';
+import { contentSections, type ContentSectionConfig } from '$lib/site/views';
+import { mergeSectionUiConfig, type SectionUiConfig } from '$lib/site/content-ui';
 import { parseContentSource } from '$lib/content/frontmatter';
 import {
 	flattenNavigationToManifest,
@@ -18,7 +19,7 @@ export type ContentMetadata = {
 	slug: string;
 	title: string;
 	description?: string;
-	sourceType: 'svx' | 'svelte';
+	sourceType: 'markdown' | 'svelte';
 };
 
 export type ContentTocHeading = {
@@ -36,32 +37,39 @@ function basePathFor(id: string): string {
 	return `/${id}`;
 }
 
-const contentSectionsById = Object.fromEntries(
+validateContentSections(contentSections);
+
+const contentSectionsById = new Map<string, ContentSectionConfig>(
 	contentSections.map((section) => [section.id, section])
-) as Record<ContentSectionId, ContentSectionConfig>;
+);
 
-const contentSectionOrder: ContentSectionId[] = contentSections.map((section) => section.id);
-
-const contentManifests = Object.fromEntries(
+const contentManifests = new Map<string, ContentItem[]>(
 	contentSections.map((section) => [section.id, flattenNavigationToManifest(section.navigation)])
-) as Record<ContentSectionId, ContentItem[]>;
+);
 
-const allSvxRaw = import.meta.glob<string>('/src/lib/content/**/*.svx', {
-	query: '?raw',
-	eager: true,
-	import: 'default'
-});
+const allSvxRaw = import.meta.glob<string>(
+	[
+		'/src/lib/site/content/**/*.svx',
+		'/src/lib/site/content/**/*.mdx',
+		'/src/lib/site/content/**/*.md'
+	],
+	{
+		query: '?raw',
+		eager: true,
+		import: 'default'
+	}
+);
 
-const allSvxModules = import.meta.glob<ContentModule>('/src/lib/content/**/*.svx', {
-	eager: true
-});
+const allSvxModules = import.meta.glob<ContentModule>([
+	'/src/lib/site/content/**/*.svx',
+	'/src/lib/site/content/**/*.mdx',
+	'/src/lib/site/content/**/*.md'
+]);
 
-const allSvelteModules = import.meta.glob<ContentModule>('/src/lib/content/**/*.svelte', {
-	eager: true
-});
+const allSvelteModules = import.meta.glob<ContentModule>('/src/lib/site/content/**/*.svelte');
 
 const allSvelteMetadatas = import.meta.glob<Record<string, unknown>>(
-	'/src/lib/content/**/*.svelte',
+	'/src/lib/site/content/**/*.svelte',
 	{
 		eager: true,
 		import: 'metadata'
@@ -70,21 +78,23 @@ const allSvelteMetadatas = import.meta.glob<Record<string, unknown>>(
 
 function toBaseKey(sectionId: string, slug: string): string {
 	const filename = slug === '' ? 'index' : slug;
-	return `/src/lib/content/${sectionId}/${filename}`;
+	return `/src/lib/site/content/${sectionId}/${filename}`;
 }
 
 function toDirectoryIndexKey(sectionId: string, slug: string): string {
-	return `/src/lib/content/${sectionId}/${slug}/index`;
+	return `/src/lib/site/content/${sectionId}/${slug}/index`;
 }
 
 function findSvxKey(sectionId: string, slug: string): string | null {
-	const svxKey = `${toBaseKey(sectionId, slug)}.svx`;
-	if (Object.prototype.hasOwnProperty.call(allSvxModules, svxKey)) return svxKey;
-	if (!slug) return null;
-	const directoryIndexKey = `${toDirectoryIndexKey(sectionId, slug)}.svx`;
-	return Object.prototype.hasOwnProperty.call(allSvxModules, directoryIndexKey)
-		? directoryIndexKey
-		: null;
+	const keys = ['.mdx', '.svx', '.md']
+		.flatMap((extension) => [
+			`${toBaseKey(sectionId, slug)}${extension}`,
+			...(slug ? [`${toDirectoryIndexKey(sectionId, slug)}${extension}`] : [])
+		])
+		.filter((key) => Object.hasOwn(allSvxModules, key));
+	if (keys.length > 1)
+		throw new Error(`Duplicate content for /${sectionId}/${slug}: ${keys.join(', ')}`);
+	return keys[0] ?? null;
 }
 
 function findSvelteKey(sectionId: string, slug: string): string | null {
@@ -97,28 +107,29 @@ function findSvelteKey(sectionId: string, slug: string): string | null {
 		: null;
 }
 
+for (const section of contentSections) {
+	for (const item of contentManifests.get(section.id) ?? []) {
+		const markdown = findSvxKey(section.id, item.slug);
+		const svelte = findSvelteKey(section.id, item.slug);
+		if (markdown && svelte)
+			throw new Error(`Duplicate Markdown and Svelte page: /${section.id}/${item.slug}`);
+		if (!markdown && !svelte)
+			throw new Error(
+				`Missing content for /${section.id}/${item.slug}. Add it under site/content/${section.id}.`
+			);
+	}
+}
+
 export function getContentSectionConfig(sectionId: ContentSectionId) {
-	return contentSectionsById[sectionId];
+	return contentSectionsById.get(sectionId);
 }
 
 export function getContentSectionUiConfig(sectionId: ContentSectionId): SectionUiConfig {
-	return mergeSectionUiConfig(contentSectionsById[sectionId].ui);
-}
-
-export function getContentSectionLinks(order: ContentSectionId[] = contentSectionOrder) {
-	return order.map((sectionId): ContentSectionLink => {
-		const section = contentSectionsById[sectionId];
-		return {
-			label: section.label,
-			href: basePathFor(section.id),
-			icon: section.icon,
-			description: section.description
-		};
-	});
+	return mergeSectionUiConfig(contentSectionsById.get(sectionId)?.ui);
 }
 
 export function getContentSectionManifest(sectionId: ContentSectionId) {
-	return contentManifests[sectionId];
+	return contentManifests.get(sectionId) ?? [];
 }
 
 export function getContentSectionSlug(sectionId: ContentSectionId, pathname: string) {
@@ -129,21 +140,21 @@ export function getContentSectionMetadata(
 	sectionId: ContentSectionId,
 	pathname: string
 ): ContentMetadata | null {
-	const section = contentSectionsById[sectionId];
+	const section = contentSectionsById.get(sectionId);
+	if (!section) return null;
 	const normalizedPath = normalizePath(pathname);
 	const slug = pathToSlug(basePathFor(sectionId), normalizedPath);
 	const svxKey = findSvxKey(sectionId, slug);
 	const svelteKey = findSvelteKey(sectionId, slug);
 
-	if (!svxKey && !svelteKey) {
+	if ((!svxKey && !svelteKey) || !getItemBySlug(contentManifests.get(sectionId) ?? [], slug)) {
 		return null;
 	}
 
-	const navItem = getItemBySlug(contentManifests[sectionId], slug);
+	const navItem = getItemBySlug(contentManifests.get(sectionId) ?? [], slug);
 	const fallbackTitle = slugToTitle(slug) || section.label;
 	let title = navItem?.name ?? fallbackTitle;
 	let description: string | undefined;
-	const sourceType: ContentMetadata['sourceType'] = svxKey ? 'svx' : 'svelte';
 
 	if (svxKey) {
 		const rawSource = allSvxRaw[svxKey];
@@ -151,7 +162,7 @@ export function getContentSectionMetadata(
 		title = metadata.name ?? metadata.title ?? title;
 		description = metadata.description;
 	} else if (svelteKey) {
-		const meta = allSvelteMetadatas[svelteKey];
+		const meta = allSvelteMetadatas[svelteKey] ?? {};
 		title =
 			(typeof meta.name === 'string' ? meta.name : undefined) ??
 			(typeof meta.title === 'string' ? meta.title : undefined) ??
@@ -164,22 +175,23 @@ export function getContentSectionMetadata(
 		slug,
 		title,
 		description,
-		sourceType
+		sourceType: svxKey ? 'markdown' : 'svelte'
 	};
 }
 
-export function getContentSectionModule(
+export async function getContentSectionModule(
 	sectionId: ContentSectionId,
 	slug: string
-): ContentModule | null {
+): Promise<ContentModule | null> {
+	if (!getItemBySlug(contentManifests.get(sectionId) ?? [], slug)) return null;
 	const svxKey = findSvxKey(sectionId, slug);
 	if (svxKey) {
-		return allSvxModules[svxKey] ?? null;
+		return await allSvxModules[svxKey]();
 	}
 
 	const svelteKey = findSvelteKey(sectionId, slug);
 	if (svelteKey) {
-		return allSvelteModules[svelteKey] ?? null;
+		return await allSvelteModules[svelteKey]();
 	}
 
 	return null;
@@ -189,6 +201,7 @@ export function getContentSectionRawSource(
 	sectionId: ContentSectionId,
 	slug: string
 ): string | null {
+	if (!getItemBySlug(contentManifests.get(sectionId) ?? [], slug)) return null;
 	const svxKey = findSvxKey(sectionId, slug);
 	if (!svxKey) return null;
 	return allSvxRaw[svxKey] ?? null;
@@ -206,12 +219,8 @@ export function getContentSectionTocHeadings(
 	return extractTocHeadings(body, selector);
 }
 
-export function getContentSectionItemBySlug(sectionId: ContentSectionId, slug: string) {
-	return getItemBySlug(contentManifests[sectionId], slug);
-}
-
 export function getContentSectionAdjacentItems(sectionId: ContentSectionId, slug: string) {
-	return getAdjacentItems(contentManifests[sectionId], slug);
+	return getAdjacentItems(contentManifests.get(sectionId) ?? [], slug);
 }
 
 export function getContentSectionHref(sectionId: ContentSectionId, slug: string) {
@@ -226,7 +235,7 @@ export function getContentSectionRawHref(sectionId: ContentSectionId, slug: stri
 
 export function getContentSectionByPathname(pathname: string) {
 	const normalized = normalizePath(pathname);
-	const section = Object.values(contentSectionsById).find((s) => {
+	const section = [...contentSectionsById.values()].find((s) => {
 		const bp = basePathFor(s.id);
 		return normalized === bp || normalized.startsWith(`${bp}/`);
 	});

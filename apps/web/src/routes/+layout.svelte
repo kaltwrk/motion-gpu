@@ -1,10 +1,11 @@
 <script lang="ts">
-	import './layout.css';
+	import '$lib/site/theme.css';
 	import { page } from '$app/state';
-	import { CommandPalette, contentUiDefaults, siteConfig } from '$lib';
-	import { getContentSectionByPathname, getContentSectionUiConfig } from '$lib/content/sections';
+	import { contentUiDefaults } from '$lib/site/content-ui';
+	import { siteConfig } from '$lib/site/site';
+	import * as Tooltip from '$lib/components/ui/tooltip';
+	import { getContentSectionByPathname } from '$lib/content/sections';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import type { SectionUiConfig } from '$lib/config/content-ui';
 	import { type Snippet } from 'svelte';
 
 	const { children }: { children: Snippet } = $props();
@@ -17,13 +18,6 @@
 	const currentPath = $derived(currentUrl.pathname);
 	const isHomeRoute = $derived(isHomePath(currentPath));
 	const currentSection = $derived(getContentSectionByPathname(currentPath));
-	const currentSectionUi = $derived(
-		currentSection ? getContentSectionUiConfig(currentSection.id) : null
-	);
-	const searchConfig = $derived<SectionUiConfig['search']>(
-		currentSectionUi?.search ?? contentUiDefaults.search
-	);
-	const showCommandPalette = $derived(Boolean(currentSection) && searchConfig.enabled);
 	const siteOrigin = new URL(siteConfig.url).origin;
 	const canonicalUrl = $derived(new URL(currentPath, siteOrigin).href);
 
@@ -72,14 +66,12 @@
 		content={contentUiDefaults.packageManager.enabled.join(',')}
 	/>
 	<meta property="og:site_name" content={siteName} />
-	<meta property="og:locale" content="en_US" />
+	<meta property="og:locale" content={siteConfig.locale} />
 	<meta name="twitter:card" content="summary_large_image" />
-	<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-	<link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
-	<link rel="icon" type="image/x-icon" href="/favicon.ico" />
-	<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+	<link rel="icon" type="image/svg+xml" href={siteConfig.assets.favicon} />
+	<link rel="apple-touch-icon" sizes="180x180" href={siteConfig.assets.appleTouchIcon} />
 	<link rel="manifest" href="/site.webmanifest" />
-	<link rel="mask-icon" href="/favicon.svg" color="#1f2125" />
+
 	<meta name="mobile-web-app-capable" content="yes" />
 	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 	<meta name="apple-mobile-web-app-title" content={siteName} />
@@ -109,7 +101,6 @@
 	{/if}
 </svelte:head>
 
-{#if showCommandPalette}
-	<CommandPalette {searchConfig} />
-{/if}
-{@render children()}
+<Tooltip.Provider delayDuration={350} skipDelayDuration={100}>
+	{@render children()}
+</Tooltip.Provider>

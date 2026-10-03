@@ -1,4 +1,4 @@
-import type { ContentItem } from '$lib/config/navigation';
+import type { ContentItem } from '$lib/site/views';
 
 export function flattenNavigationToManifest(
 	items: ContentItem[],
@@ -16,10 +16,10 @@ export function flattenNavigationToManifest(
 		}
 
 		manifest.push({
+			...item,
 			slug: item.slug,
 			name: item.name,
-			category: effectiveCategory,
-			showPagination: item.showPagination
+			category: effectiveCategory
 		});
 	}
 

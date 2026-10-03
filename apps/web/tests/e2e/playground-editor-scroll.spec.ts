@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('keeps the rendered shader aligned with wheel scrolling', async ({ page }) => {
-	await page.goto('/playground?demo=blood-moon&framework=react');
+	await page.goto('/playground/blood-moon?framework=react');
 	await expect(page.getByText('Preview ready', { exact: true })).toBeVisible();
 	await page.getByText('fragment.wgsl', { exact: true }).click();
 	await page.evaluate(() => document.fonts.ready);
@@ -70,7 +70,7 @@ test('preserves wheel units, horizontal scrolling, zoom gestures and scroll boun
 	page
 }) => {
 	await page.setViewportSize({ width: 1280, height: 720 });
-	await page.goto('/playground?demo=blood-moon&framework=react');
+	await page.goto('/playground/blood-moon?framework=react');
 	await expect(page.getByText('Preview ready', { exact: true })).toBeVisible();
 	await page.getByText('fragment.wgsl', { exact: true }).click();
 	await page.evaluate(() => document.fonts.ready);

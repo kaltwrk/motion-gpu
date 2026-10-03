@@ -1,0 +1,72 @@
+---
+title: Getting started
+description: Install Spektral and mount a validated material in Svelte, React, or Vue.
+---
+
+<script lang="ts">
+	import InstallationTabs from '$lib/features/docs/InstallationTabs.svelte';
+	import FrameworkBlock from '$lib/features/docs/FrameworkBlock.svelte';
+</script>
+
+## Requirements
+
+- Svelte 5, React 19, or Vue 3.5
+- A browser and execution context with WebGPU available
+
+Handle WebGPU initialization failures through `onError`; availability depends on the browser, platform, GPU, and security context.
+
+## Install
+
+<InstallationTabs />
+
+Only the adapter you import needs its peer dependencies:
+
+- `svelte ^5`
+- `react ^19` and `react-dom ^19`
+- `vue ^3.5`
+
+## Mount a material
+
+Create the material outside the component render path and pass it to the adapter-specific `FragCanvas`:
+
+```ts
+import { defineMaterial } from 'spektral';
+
+const material = defineMaterial({
+	fragment: `
+fn frag(uv: vec2f) -> vec4f {
+	return vec4f(uv, 0.5, 1.0);
+}
+`
+});
+```
+
+<FrameworkBlock
+svelteCode={`<script lang="ts">\n  import { FragCanvas } from 'spektral/svelte';\n<\/script>\n\n<div class="canvas-host">\n  <FragCanvas {material} />\n</div>`}
+reactCode={`import { FragCanvas } from 'spektral/react';\n\nexport function App() {\n  return <div className="canvas-host"><FragCanvas material={material} /></div>;\n}`}
+vueCode={`<script setup lang="ts">\nimport { FragCanvas } from 'spektral/vue';\n<\/script>\n\n<template>\n  <div class="canvas-host"><FragCanvas :material="material" /></div>\n</template>`}
+svelteLang="svelte"
+reactLang="tsx"
+vueLang="vue"
+/>
+
+`FragCanvas` fills its container. CSS controls its visible size; Spektral sets the backing-store resolution from the measured size and `dpr`.
+
+## Add runtime updates
+
+Call `useFrame`, `useSpektral`, `usePointer`, and `useTexture` from a descendant of `FragCanvas`. Declare resource names in `defineMaterial(...)` before updating them at runtime.
+
+```ts
+useFrame((state) => {
+	state.setUniform('uTime', state.time);
+});
+```
+
+The [Frame Scheduler](/docs/frame-scheduler) documents registration and invalidation. The [playground](/playground/diamond?framework=svelte) contains complete, editable applications for every adapter.
+
+## Production baseline
+
+- Treat material, pass, and compute entrypoint signatures as strict contracts.
+- Use runtime setters for values; create a new material when the shader or resource layout changes.
+- Choose `always`, `on-demand`, or `manual` rendering deliberately.
+- Provide `onError` and decide whether to keep, disable, or replace the built-in overlay.
