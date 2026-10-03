@@ -84,11 +84,10 @@ const takumiFontLoaders = [
 ];
 
 const colors = {
-	backgroundInset: toSvgColor(ogThemeColors.dark.backgroundInset),
 	background: toSvgColor(ogThemeColors.dark.background),
 	foreground: toSvgColor(ogThemeColors.dark.foreground),
 	accent: toSvgColor(ogThemeColors.dark.accent),
-	guide: withAlpha(ogThemeColors.dark.shadowHighlight, 0.08)
+	guide: withAlpha(ogThemeColors.dark.shadowHighlight, 0.1)
 };
 
 const logoDataUri = `data:image/svg+xml,${encodeURIComponent(
@@ -170,7 +169,7 @@ const createComponent = ({
 				width: '100%',
 				height: '100%',
 				overflow: 'hidden',
-				backgroundColor: colors.backgroundInset,
+				backgroundColor: colors.background,
 				color: colors.foreground,
 				fontFamily: 'Overused Grotesk, sans-serif'
 			}
@@ -182,8 +181,8 @@ const createComponent = ({
 				right: -90,
 				bottom: -90,
 				left: -90,
-				backgroundColor: colors.backgroundInset,
-				backgroundImage: `radial-gradient(ellipse 50% 80% at 50% 50%, rgba(0, 0, 0, 0) 72%, rgba(0, 0, 0, 0.92) 100%), radial-gradient(ellipse 100% 110% at 50% 0%, ${colors.backgroundInset} 37%, ${colors.accent} 69%, ${colors.foreground} 100%)`,
+				backgroundColor: colors.background,
+				backgroundImage: `radial-gradient(ellipse 50% 80% at 50% 50%, rgba(0, 0, 0, 0) 72%, rgba(0, 0, 0, 0.92) 100%), radial-gradient(ellipse 100% 110% at 50% 0%, ${colors.background} 37%, ${colors.accent} 69%, ${colors.foreground} 100%)`,
 				backgroundPosition: 'center',
 				backgroundRepeat: 'no-repeat',
 				backgroundSize: `${OG_WIDTH.toString()}px ${OG_HEIGHT.toString()}px`,
@@ -199,8 +198,8 @@ const createComponent = ({
 			{
 				style: {
 					position: 'absolute',
-					top: OG_GRID_INSET + 18,
-					left: OG_GRID_INSET + 18,
+					bottom: OG_GRID_INSET + 60,
+					right: OG_GRID_INSET + 12,
 					display: 'flex',
 					alignItems: 'center',
 					gap: 14,
@@ -212,24 +211,10 @@ const createComponent = ({
 				alt: '',
 				style: {
 					display: 'flex',
-					width: 28,
-					height: 28
+					width: 120,
+					height: 120
 				}
-			}),
-			el(
-				'div',
-				{
-					style: {
-						display: 'flex',
-						color: withAlpha(colors.foreground, 0.58),
-						fontSize: 28,
-						fontWeight: 500,
-						letterSpacing: '-0.02em',
-						lineHeight: 1
-					}
-				},
-				siteConfig.name
-			)
+			})
 		),
 		el(
 			'div',
@@ -266,7 +251,7 @@ const createComponent = ({
 				{
 					style: {
 						display: 'flex',
-						maxWidth: OG_WIDTH - OG_GRID_INSET * 2 - 36,
+						maxWidth: OG_WIDTH - OG_GRID_INSET - 300,
 						color: withAlpha(colors.foreground, 0.58),
 						fontSize: 25,
 						fontWeight: 400,

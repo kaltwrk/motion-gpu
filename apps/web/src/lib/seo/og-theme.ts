@@ -1,7 +1,6 @@
 import layoutCss from '../site/theme.css?raw';
 
 type OgThemeColors = {
-	backgroundInset: string;
 	background: string;
 	foreground: string;
 	foregroundMuted: string;
@@ -101,12 +100,11 @@ const darkThemeProperties = new Map([
 ]);
 
 const resolveTheme = (properties: Map<string, string>): OgThemeColors => ({
-	backgroundInset: resolveCustomProperty('--background', properties),
 	background: resolveCustomProperty('--background', properties),
 	foreground: resolveCustomProperty('--foreground', properties),
 	foregroundMuted: resolveCustomProperty('--muted-foreground', properties),
 	accent: resolveCustomProperty('--primary', properties),
-	shadowHighlight: resolveCustomProperty('--card', properties)
+	shadowHighlight: resolveCustomProperty('--border', properties)
 });
 
 export const ogThemeColors = {
