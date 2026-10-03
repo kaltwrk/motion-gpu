@@ -8,12 +8,22 @@ export const webLintCoverageExpectations = [
 	{
 		file: 'src/lib/config/site.ts',
 		parser: 'typescript-eslint/parser',
-		rules: ['no-debugger', '@typescript-eslint/no-floating-promises']
+		rules: ['no-debugger', 'no-restricted-imports', '@typescript-eslint/no-floating-promises']
 	},
 	{
 		file: 'src/routes/+page.svelte',
 		parser: 'svelte-eslint-parser',
-		rules: ['no-debugger', '@typescript-eslint/no-floating-promises', 'svelte/no-at-debug-tags']
+		rules: [
+			'no-debugger',
+			'no-restricted-imports',
+			'@typescript-eslint/no-floating-promises',
+			'svelte/no-at-debug-tags'
+		]
+	},
+	{
+		file: 'src/lib/components/ui/sidebar/sidebar-trigger.svelte',
+		parser: 'svelte-eslint-parser',
+		rules: ['no-restricted-imports']
 	}
 ];
 
@@ -77,6 +87,30 @@ run();`;
 
 	if (!svelteRules.has('svelte/no-at-debug-tags')) {
 		throw new Error('Web Svelte lint mutation did not trigger svelte/no-at-debug-tags.');
+	}
+
+	for (const source of [
+		'@lucide/svelte',
+		'@lucide/svelte/icons/check',
+		'lucide-svelte',
+		'lucide-svelte/icons/check',
+		'lucide-react',
+		'lucide',
+		'$lib/icons'
+	]) {
+		for (const filePath of [
+			'src/routes/+page.svelte',
+			'src/lib/components/ui/sidebar/sidebar-trigger.svelte'
+		]) {
+			const [result] = await eslint.lintText(
+				`<script lang="ts">import { CheckIcon } from '${source}';</script><CheckIcon />`,
+				{ filePath }
+			);
+			const restricted = result.messages.some(({ ruleId }) => ruleId === 'no-restricted-imports');
+			if (restricted !== (source !== '$lib/icons')) {
+				throw new Error(`Icon import policy did not handle ${source} correctly in ${filePath}.`);
+			}
+		}
 	}
 }
 
