@@ -1,0 +1,60 @@
+---
+title: Uniforms
+description: Declare, pack, and update dynamic shader values.
+order: 20
+sidebar:
+  label: "Uniforms"
+---
+
+Material uniforms define a stable WGSL buffer layout. Runtime calls update values inside that layout without recompiling the shader.
+
+## Declaration forms
+
+| Input value | Inferred type |
+| --- | --- |
+| Finite number | `f32` |
+| 2-number tuple | `vec2f` |
+| 3-number tuple | `vec3f` |
+| 4-number tuple | `vec4f` |
+
+Use `{ type, value }` for an explicit scalar or vector type and for `mat4x4f`. A matrix accepts a 16-number array or `Float32Array`; it is never inferred from array length.
+
+```ts
+uniforms: {
+	uTime: 0,
+	uColor: [1, 0.5, 0],
+	uTransform: { type: 'mat4x4f', value: matrix }
+}
+```
+
+Fields are available as `spektralUniforms.<name>`. Names must match `[A-Za-z_][A-Za-z0-9_]*`.
+
+## Layout
+
+Entries are sorted by name and packed using WGSL alignment. The final buffer is at least 16 bytes and rounded to a 16-byte boundary.
+
+| Type | Alignment | Value size |
+| --- | --- | --- |
+| `f32` | 4 bytes | 4 bytes |
+| `vec2f` | 8 bytes | 8 bytes |
+| `vec3f` | 16 bytes | 12 bytes |
+| `vec4f` | 16 bytes | 16 bytes |
+| `mat4x4f` | 16 bytes | 64 bytes |
+
+Sorting makes declaration order irrelevant to the resolved layout and signature.
+
+## Runtime updates
+
+```ts
+useFrame((state) => {
+	state.setUniform('uTime', state.time);
+});
+```
+
+The name must exist and the value must match its declared type. Spektral merges runtime overrides with material defaults, compares the packed values, and writes only dirty byte ranges.
+
+Changing a value does not rebuild the renderer. Adding, removing, renaming, or changing the type of a uniform changes the material signature.
+
+## Frame uniforms
+
+`spektralFrame.time`, `.delta`, and `.resolution` are generated separately and must not be declared in the material. See [Writing Shaders](/docs/writing-shaders#frame-uniforms) for their exact meaning.

@@ -7,7 +7,7 @@ import {
 	getContentSectionTocHeadings,
 	getContentSectionUiConfig
 } from '$lib/content/sections';
-import { contentSections } from '$lib/site/views';
+import { contentSections } from '$lib/content/sections';
 import { resolveTocSelector } from '$lib/site/content-ui';
 
 export const prerender = true;

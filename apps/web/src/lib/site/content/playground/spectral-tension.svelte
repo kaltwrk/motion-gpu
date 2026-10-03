@@ -1,11 +1,17 @@
 <script module lang="ts">
-	import { getPlaygroundPage } from '$lib/site/playground';
-
-	export const metadata = getPlaygroundPage('spectral-tension');
+	import type { ContentFrontmatter } from '$lib/content/types';
+	export const metadata = {
+		title: 'Spectral Tension',
+		description: 'Edit the Spectral Tension example in Svelte, React, or Vue and preview it live.',
+		order: 80,
+		data: {
+			demo: 'spectral-tension'
+		}
+	} satisfies ContentFrontmatter;
 </script>
 
 <script lang="ts">
 	import PlaygroundPage from '$lib/features/playground/PlaygroundPage.svelte';
 </script>
 
-<PlaygroundPage demoId={metadata.id} />
+<PlaygroundPage demoId={metadata.data.demo} title={metadata.title} />

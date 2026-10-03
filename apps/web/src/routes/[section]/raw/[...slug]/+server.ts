@@ -5,7 +5,7 @@ import {
 	getContentSectionRawSource,
 	getContentSectionManifest
 } from '$lib/content/sections';
-import { contentSections } from '$lib/site/views';
+import { contentSections } from '$lib/content/sections';
 
 const normalize = (value: string) => value.replace(/^\/+|\/+$/g, '');
 

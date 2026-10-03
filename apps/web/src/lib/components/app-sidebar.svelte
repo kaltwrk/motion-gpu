@@ -7,7 +7,7 @@
 	import type { DocsNavigationGroup } from '$lib/content/docs';
 	import * as Sidebar from '$lib/components/ui/sidebar';
 	import ViewSwitcher from './view-switcher.svelte';
-	import type { ContentSectionConfig } from '$lib/site/views';
+	import type { ContentSectionConfig } from '$lib/content/types';
 	import type { SectionUiConfig } from '$lib/site/content-ui';
 	import { GitHubIcon } from '$lib/icons';
 	import NavMain from './nav-main.svelte';
@@ -25,6 +25,7 @@
 	const currentPathname = $derived(normalizePathname(page.url.pathname));
 	const navigationGroups = $derived(
 		groups.map((group) => ({
+			id: group.id,
 			title: group.title,
 			items: group.items.map((item) => ({
 				title: item.title,

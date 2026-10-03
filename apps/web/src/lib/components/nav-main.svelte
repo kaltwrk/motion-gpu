@@ -9,6 +9,7 @@
 	};
 
 	type NavigationGroup = {
+		id: string;
 		title: string;
 		items: readonly NavigationItem[];
 	};
@@ -21,7 +22,7 @@
 	data-docs-navigation
 	class="flex scroll-py-4 scrollbar-none flex-col overflow-auto"
 >
-	{#each groups as group (group.title)}
+	{#each groups as group (group.id)}
 		<Sidebar.Group class="shrink-0">
 			<Sidebar.GroupLabel class="text-sm font-medium text-muted-foreground">
 				{group.title}

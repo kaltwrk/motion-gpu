@@ -1,0 +1,75 @@
+---
+title: Frame scheduler
+description: Register per-frame tasks, invalidation policies, and ordering dependencies.
+order: 30
+sidebar:
+  label: "Frame Scheduler"
+---
+
+`useFrame(...)` registers a callback in the `FragCanvas` scheduler. It must run inside the canvas subtree and automatically unregisters through the adapter lifecycle.
+
+## Signatures
+
+```ts
+useFrame(callback, options?)
+useFrame(key, callback, options?)
+```
+
+An explicit string or symbol key makes ordering and diagnostic output stable. Registering the same explicit key again replaces the previous task; a stale cleanup from the old registration cannot remove the replacement.
+
+## Frame state
+
+| Member | Purpose |
+| --- | --- |
+| `time`, `delta` | RAF time in seconds and delta clamped by `maxDelta` |
+| `canvas` | Active canvas element |
+| `renderMode`, `autoRender` | Current render-gate state |
+| `setUniform`, `setTexture` | Set runtime resource overrides |
+| `writeStorageBuffer` | Queue an owned copy of an aligned CPU-to-GPU write |
+| `readStorageBuffer` | Flush that buffer's queued writes, then read it asynchronously |
+| `invalidate`, `advance` | Request on-demand or manual rendering |
+
+## Options
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `autoStart` | `true` | Start the task immediately |
+| `autoInvalidate` | `true` | Use implicit `'always'` invalidation |
+| `invalidation` | Implicit | Explicit `'never'`, `'always'`, or token policy |
+| `stage` | Main stage | Stage key or `FrameStage` |
+| `before`, `after` | — | Task dependencies in the same stage |
+| `running` | — | Dynamic predicate checked every frame |
+
+The returned handle contains task metadata, `start()`, `stop()`, and a `started: Subscribable<boolean>` flag. Stopping a task keeps it registered but skips its callback.
+
+## Invalidation policies
+
+```ts
+useFrame('sync-data', syncData, {
+	invalidation: {
+		mode: 'on-change',
+		token: () => dataVersion
+	}
+});
+```
+
+- `'always'` invalidates whenever the task runs.
+- `'never'` does not invalidate.
+- `{ mode: 'on-change', token }` compares the resolved string, number, or symbol token with the previous run.
+- `{ mode: 'always', token }` invalidates with the supplied static or resolved token.
+
+An `on-change` policy requires a token. The first non-null resolved token and every subsequent changed token invalidate the frame. Resolving `null` or `undefined` clears the stored comparison state.
+
+## Ordering
+
+```ts
+const simulation = useFrame('simulation', updateSimulation);
+
+useFrame('upload', uploadState, {
+	after: simulation.task
+});
+```
+
+`before` and `after` accept task keys, task metadata, or arrays of either. Dependencies order tasks within a stage. If a task omits `stage`, the registry uses the stage of the first task-metadata dependency it finds; otherwise it uses the main stage. References to known tasks in other stages do not create cross-stage ordering—order those stages separately.
+
+Use [Render Modes](/docs/render-modes) for render gating, stages, and profiling. Runtime resource rules are documented under [Uniforms](/docs/uniforms), [Textures](/docs/textures), and [Storage Buffers](/docs/storage-buffers).

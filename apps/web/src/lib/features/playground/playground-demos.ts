@@ -1,4 +1,6 @@
-import { playgroundPages } from '$lib/site/playground';
+import { getPlaygroundPages } from './playground-pages';
+
+const playgroundPages = getPlaygroundPages();
 
 export type PlaygroundFramework = 'svelte' | 'react' | 'vue';
 
@@ -104,7 +106,7 @@ const missingFrameworkVariants: string[] = [];
 
 for (const id of Object.keys(demoFilesById)) {
 	if (!playgroundPages.some((page) => page.id === id)) {
-		throw new Error(`Register playground demo ${id} in site/playground.ts.`);
+		throw new Error(`Add a content/playground page with data.demo: ${id}.`);
 	}
 }
 

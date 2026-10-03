@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types';
 import { siteConfig } from '$lib/site/site';
-import { contentSections } from '$lib/site/views';
+import { contentSections } from '$lib/content/sections';
 import {
 	getContentSectionRawSource,
 	getContentSectionHref,

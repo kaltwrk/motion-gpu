@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { getContentSectionModule, getContentSectionManifest } from '$lib/content/sections';
-import { contentSections } from '$lib/site/views';
+import { contentSections } from '$lib/content/sections';
 
 export const prerender = true;
 

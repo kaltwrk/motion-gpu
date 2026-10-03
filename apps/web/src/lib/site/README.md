@@ -1,21 +1,19 @@
 # Configure a fork
 
 This folder owns the website's identity, interface copy, views, content and demos.
-Start with `site.ts` and `views.ts`. The runtime in `lib/content`, `lib/features`
-and `lib/components` reads these files; there is no second configuration layer.
+Start with `site.ts` and `content/`. The runtime in `lib/content`, `lib/features`
+and `lib/components` discovers views and pages from the content files.
 
 | File or folder          | What to change                                                                                                                      |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `site.ts`               | Name, canonical URL, author, SEO description, social links, package name, home link, app icons, legacy redirects and preview origin |
-| `views.ts`              | Views in the sidebar dropdown, their routes, icons, descriptions, navigation and UI overrides                                       |
 | `content-ui.ts`         | Search labels and limits, sidebar links, TOC, page actions, pagination, preference defaults and storage keys                        |
 | `labels.ts`             | Shared labels, tooltips, copy feedback and playground hints                                                                         |
 | `actions.ts`            | Assistant/IDE/builder links, icons, labels, prompts and URL templates                                                               |
 | `keyboard-shortcuts.ts` | Shortcuts and their displayed/accessibility labels                                                                                  |
-| `playground.ts`         | Playground demo labels, sidebar order, routes and page metadata                                                                     |
 | `theme.css`             | Font, colors, spacing tokens, radii and shadows; OG images read the same color tokens                                               |
 | `assets/`               | Logo, app icons and their source notices                                                                                            |
-| `content/<view>/`       | Markdown and Svelte pages                                                                                                           |
+| `content/<view>/`       | Pages, view settings, sidebar groups, labels and order                                                                              |
 | `demos/<demo>/`         | Editable playground examples and their source files                                                                                 |
 
 Use distinct storage keys in a fork. This keeps theme, framework and package-manager
@@ -25,44 +23,89 @@ second defaults to edit in `app.html`.
 
 ## Add a view
 
-Add an entry to `contentSections` in `views.ts`. The `id` is both its URL segment
-and its content directory. For example:
+Create `content/<view>/index.svx`. The top-level folder defines the view's URL
+and the index defines its dropdown entry. No route file or registration array is needed.
+For example, `content/examples/index.svx`:
 
-```ts
-{
-  id: 'examples',
-  label: 'Examples',
-  description: 'Patterns you can adapt',
-  icon: BookOpenIcon,
-  navigation: [
-    { slug: '', name: 'Overview' },
-    { slug: 'first-example', name: 'First example' }
-  ],
-  ui: {
-    search: { label: 'Search examples', placeholder: 'Search examples…' },
-    pageActions: { enabled: false }
-  }
-}
+```mdx
+---
+title: Examples
+description: Patterns you can adapt.
+view:
+  label: Examples
+  icon: BookOpenIcon
+  order: 20
+  layout: article
+  ui:
+    search:
+      label: Search examples
+      placeholder: Search examples…
+    pageActions:
+      enabled: false
+---
+
+## First example
+
+Add your content here.
 ```
 
-Create `content/examples/index.mdx` and `content/examples/first-example.mdx`.
-They become `/examples` and `/examples/first-example`. Nested slugs such as
-`guides/setup` work with either `guides/setup.mdx` or `guides/setup/index.mdx`.
-Navigation groups can contain nested `items`; leaf entries identify pages.
-Every view must have a leaf with `slug: ''` for its dropdown destination.
+`view` is allowed only on the root index. The label defaults to the folder name,
+icon to `BookOpenIcon`, layout to `article`, and order to `0`. Icon names are
+exports from `lib/icons`. UI overrides merge with `content-ui.ts`; arrays replace
+defaults. Use `layout: workspace` for an editor, canvas or dashboard that fills
+the shell pane.
 
-The shared `[section]/[...slug]` route renders every registered view. Registering
-a view also adds its pages to the sitemap and creates their OG endpoints. The
-dropdown disappears when there is only one view. Search and previous/next links
-stay inside the active view. Article views always include a TOC: sticky beside the
-article on wide screens, or a sticky heading/progress bar with a dropdown on
-phones, following Fumadocs. The article and TOC share a viewport with the scrollbar
-at its outer edge. TOC visibility has no configuration switch or keyboard shortcut.
+Every view needs an index page. The shared route renders all discovered views,
+including their sitemap entries and OG images. The dropdown disappears when
+there is only one view. Search and previous/next links stay inside the active view.
 
-UI overrides merge with the defaults in `content-ui.ts`; arrays replace defaults.
-Use `showPagination: false` on an individual navigation leaf to hide its pager.
-Duplicate view IDs, reserved routes, duplicate slugs and missing content fail
-during development/build rather than becoming broken links after deployment.
+### Files, URLs and sidebar groups
+
+| Content file                           | URL                                 |
+| -------------------------------------- | ----------------------------------- |
+| `examples/index.svx`                   | `/examples`                         |
+| `examples/setup.svx`                   | `/examples/setup`                   |
+| `examples/compute/index.svx`           | `/examples/compute`                 |
+| `examples/compute/storage-buffers.svx` | `/examples/compute/storage-buffers` |
+| `examples/(advanced)/profiling.svx`    | `/examples/profiling`               |
+
+Folders become sidebar groups. Parentheses make a group **pathless**: it groups
+pages without adding a segment to their URLs. The existing docs use this
+convention to preserve their published links. Nested groups appear with labels
+such as `Compute / Patterns`.
+
+Set a folder's label and order in its `index.svx`:
+
+```yaml
+---
+title: Compute overview
+group:
+  label: GPU compute
+  order: 20
+---
+```
+
+If the folder has no landing page, put only that `group` block in `_meta.svx`.
+This optional file contains frontmatter only and does not create a route,
+search result, sitemap entry or OG image. Define `group` in either the index or
+`_meta`, never both. Omitting both uses the folder name and order `0`.
+The root index can also set `group.label` for pages directly inside the view.
+
+Pages within a folder sort by ascending `order`, then filename. Child groups follow
+those pages and sort separately by their order and folder name. A folder
+uses `group.order`, falling back to its index's `order`, then `0`. An index page
+defaults to order `-1`; other pages default to `0`. View order is separate,
+set by `view.order`.
+
+Article views always include a TOC: sticky beside the article on wide screens,
+or a sticky heading/progress bar with a dropdown on phones, following Fumadocs.
+The article and TOC share a viewport with the scrollbar at its outer edge.
+TOC visibility has no configuration switch or keyboard shortcut.
+
+Invalid metadata, unknown icons, duplicate routes, reserved paths and missing
+view indexes fail during development/build with a source-file error. Keep reusable
+components outside `content`: every `.svx`, `.mdx`, `.md` or `.svelte` file there
+is a page, except `_meta` files.
 
 ## Write Markdown with components
 
@@ -76,6 +119,10 @@ title: First example
 description: >-
   A short explanation that also appears in search results
   and the generated social preview.
+order: 20
+sidebar:
+  label: First example
+  hidden: false
 ---
 
 <script>import InstallationTabs from '$lib/features/docs/InstallationTabs.svelte';</script>
@@ -89,8 +136,13 @@ Start with the package:
 Write the explanation here.
 ```
 
-Use `title` (or the older `name`) and `description` in YAML frontmatter. The shell
-renders the page's H1, so start the body at H2. H2/H3 headings populate the TOC.
+Use `title` and `description` in YAML frontmatter. Optional `sidebar.label`
+changes only the navigation label. `sidebar.hidden: true` omits a page from
+navigation, search and previous/next links; its URL, raw source, sitemap entry
+and OG image remain available. Use `showPagination: false` to hide a page's pager.
+Custom component data belongs in the `data` object; all fields must be serializable.
+
+The shell renders a Markdown page's H1, so start the body at H2. H2/H3 headings populate the TOC.
 Override `toc.defaultSelector` or `toc.selectorOverrides` for other heading levels.
 Code fences receive syntax highlighting and copy controls. Markdown pages expose
 their original source at `/<view>/raw/<slug>`; the index uses `raw/index`.
@@ -101,15 +153,17 @@ Place reusable custom components outside `content`, for example in
 
 ## Add a custom Svelte page
 
-Create `content/examples/interactive.svelte`, register the `interactive` slug,
-and export metadata from a module script:
+Create `content/examples/interactive.svelte` and export metadata from a module
+script. It accepts the same fields as Markdown frontmatter:
 
 ```svelte
 <script module lang="ts">
+	import type { ContentFrontmatter } from '$lib/content/types';
 	export const metadata = {
 		title: 'Interactive example',
-		description: 'Try the example in your browser.'
-	};
+		description: 'Try the example in your browser.',
+		order: 10
+	} satisfies ContentFrontmatter;
 </script>
 
 <script lang="ts">
@@ -125,7 +179,7 @@ and an OG image. They have no raw Markdown endpoint or Markdown actions and are
 omitted from the Markdown search index and `llms.txt`.
 
 For an editor, canvas or dashboard that must fill the available pane, set
-`layout: 'workspace'` on its view. The default `article` layout adds a scroll
+`view.layout: workspace` in its root index metadata. The default `article` layout adds a scroll
 container and a readable content width. Each playground content page renders
 the shared `PlaygroundPage` component.
 It loads the editor on mount and disposes its controller when navigating away.
@@ -152,10 +206,13 @@ Keep `themeColor` in `site.ts` aligned with your CSS browser background colors.
 ## Playground and hosting
 
 `/playground` is a registered view, rendered through the shared content route.
-Its sidebar lists the demos in `playground.ts`. Spektral Logo uses the index URL;
-other demos use `/playground/<slug>`. Each entry has a Svelte page under
-`content/playground` that passes its demo ID to `PlaygroundPage`. Adding a demo
-also gives it page metadata, a sitemap entry and an OG image.
+Its sidebar comes from the files under `content/playground`. Spektral Logo uses
+`index.svelte`; other filenames define their URLs. Each page holds its title,
+description, order and `data.demo` ID, then passes the ID and title to
+`PlaygroundPage`. See `content/playground/diamond.svelte` for a complete example.
+There is no separate demo registration list. Add the matching framework sources
+under `demos/<data.demo>/`; the editor derives its catalog from the content metadata.
+A new page also gets a sitemap entry and an OG image.
 
 The framework switcher sits over the preview's top-right corner. The selected
 framework is saved between demos and included in shared URLs. Existing

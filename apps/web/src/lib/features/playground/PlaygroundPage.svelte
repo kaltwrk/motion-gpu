@@ -5,13 +5,12 @@
 	import { LoaderIcon } from '$lib/icons';
 	import { afterNavigate, goto, replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { getPlaygroundPage, playgroundPages } from '$lib/site/playground';
+	import { getPlaygroundPages } from './playground-pages';
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button';
 	import { frameworkStore, type Framework } from '$lib/stores/framework.svelte';
 
-	let { demoId }: { demoId: string } = $props();
-	const demo = $derived(getPlaygroundPage(demoId));
+	let { demoId, title }: { demoId: string; title: string } = $props();
 	const requestedFramework = () =>
 		new URL(window.location.href).searchParams.get('framework') ?? frameworkStore.active;
 
@@ -60,9 +59,11 @@
 
 		void (async () => {
 			// Existing shared URLs enter through the index, then use the demo's canonical route.
-			const linkedDemo = !demo.slug
-				? playgroundPages.find((entry) => entry.id === page.url.searchParams.get('demo'))
-				: undefined;
+			const playgroundPages = getPlaygroundPages();
+			const linkedDemo =
+				playgroundPages.find((entry) => entry.id === demoId)?.slug === ''
+					? playgroundPages.find((entry) => entry.id === page.url.searchParams.get('demo'))
+					: undefined;
 			if (linkedDemo?.slug) {
 				const destination = new SvelteURL(page.url);
 				destination.pathname = resolve('/[section]/[...slug]', {
@@ -101,7 +102,7 @@
 	});
 </script>
 
-<h1 class="sr-only">{demo.title}</h1>
+<h1 class="sr-only">{title}</h1>
 
 {#if !failedToLoad && PlaygroundView && controller}
 	<PlaygroundView

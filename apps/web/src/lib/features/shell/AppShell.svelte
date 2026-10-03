@@ -14,7 +14,7 @@
 	import * as Sidebar from '$lib/components/ui/sidebar';
 	import type { DocsNavigationGroup } from '$lib/content/docs';
 	import DocsSearch from '$lib/features/docs/DocsSearch.svelte';
-	import type { ContentSectionConfig } from '$lib/site/views';
+	import type { ContentSectionConfig } from '$lib/content/types';
 	import { contentUiDefaults, type SectionUiConfig } from '$lib/site/content-ui';
 	import Separator from '$lib/components/ui/separator/separator.svelte';
 

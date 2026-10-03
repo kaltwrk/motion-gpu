@@ -16,6 +16,7 @@ const targetPath = path.join(
 	'site',
 	'content',
 	'docs',
+	'(advanced)',
 	'changelog.svx'
 );
 const checkOnly = process.argv.includes('--check');
@@ -75,6 +76,9 @@ async function main() {
 		'---',
 		'title: Changelog',
 		`description: ${effectiveDescription}`,
+		'order: 20',
+		'sidebar:',
+		'  label: "Changelog"',
 		'---',
 		'',
 		'> This page is auto-generated from `CHANGELOG.md` in the repository root.',

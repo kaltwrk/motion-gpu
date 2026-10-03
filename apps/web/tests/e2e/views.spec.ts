@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { playgroundPages } from '../../src/lib/site/playground';
+import { readdirSync } from 'node:fs';
+
+const playgroundPageCount = readdirSync(
+	new URL('../../src/lib/site/content/playground/', import.meta.url),
+	{ recursive: true }
+).filter(
+	(path) => /\.(svelte|svx|mdx|md)$/.test(String(path)) && !/(^|\/)_meta\./.test(String(path))
+).length;
 
 test('switches views inside one shell and restores the persistent TOC', async ({ page }) => {
 	await page.goto('/docs');
@@ -8,7 +15,7 @@ test('switches views inside one shell and restores the persistent TOC', async ({
 	await page.getByRole('menuitem', { name: 'Playground', exact: true }).click();
 	await expect(page).toHaveURL(/\/playground/);
 	await expect(page.locator('[data-app-shell]')).toHaveCount(1);
-	await expect(page.locator('[data-docs-navigation] a')).toHaveCount(playgroundPages.length);
+	await expect(page.locator('[data-docs-navigation] a')).toHaveCount(playgroundPageCount);
 	await expect(page.getByRole('button', { name: 'Search documentation', exact: true })).toHaveCount(
 		0
 	);
@@ -85,7 +92,7 @@ test('each playground sidebar item has a page and its own social image', async (
 			title: node.textContent.trim()
 		}))
 	);
-	expect(links).toHaveLength(playgroundPages.length);
+	expect(links).toHaveLength(playgroundPageCount);
 	for (const link of links) {
 		const response = await request.get(link.href);
 		expect(response.status(), link.href).toBe(200);

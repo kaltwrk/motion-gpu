@@ -1,0 +1,123 @@
+---
+title: Hooks API
+description: Reference for frame, runtime, pointer, texture, and advanced user-context hooks.
+order: 20
+sidebar:
+  label: "Hooks API"
+---
+
+All hooks come from `/svelte`, `/react`, or `/vue`; advanced user-context functions come from the matching `/advanced` entrypoint. Runtime hooks require a `FragCanvas` ancestor.
+
+## `useFrame`
+
+```ts
+useFrame(callback, options?): UseFrameResult
+useFrame(key, callback, options?): UseFrameResult
+```
+
+| `UseFrameOptions` | Type | Default |
+| --- | --- | --- |
+| `autoStart` | `boolean` | `true` |
+| `autoInvalidate` | `boolean` | `true` |
+| `invalidation` | `FrameTaskInvalidation` | Implicit |
+| `stage` | `FrameKey &#124; FrameStage` | Main stage |
+| `before`, `after` | Task reference or array | — |
+| `running` | `() => boolean` | — |
+
+`UseFrameResult` contains `task: { key, stage }`, `start()`, `stop()`, and `started: Subscribable<boolean>`.
+
+### `FrameState`
+
+| Member | Type |
+| --- | --- |
+| `time`, `delta` | `number` |
+| `canvas` | `HTMLCanvasElement` |
+| `renderMode` | `RenderMode` |
+| `autoRender` | `boolean` |
+| `setUniform` | `(name, value) => void` |
+| `setTexture` | `(name, value) => void` |
+| `writeStorageBuffer` | `(name, data, { offset? }?) => void` |
+| `readStorageBuffer` | `(name) => Promise<ArrayBuffer>` |
+| `invalidate` | `(token?) => void` |
+| `advance` | `() => void` |
+
+Storage writes require a four-byte-aligned offset and byte length and must fit in the declared buffer. The runtime copies the bytes immediately. Reading a buffer flushes its queued writes in call order before readback.
+
+## `useSpektral`
+
+Returns `SpektralContext`:
+
+| Member | Type |
+| --- | --- |
+| `canvas` | `HTMLCanvasElement &#124; undefined` |
+| `size` | `CurrentReadable<{ width; height }>` in CSS pixels |
+| `dpr`, `maxDelta` | `CurrentWritable<number>` |
+| `renderMode` | `CurrentWritable<RenderMode>` |
+| `autoRender` | `CurrentWritable<boolean>` |
+| `user` | `CurrentWritable<Record<string &#124; symbol, unknown>>` |
+| `graph` | `SpektralGraph` |
+| `invalidate`, `advance` | `() => void` |
+| `scheduler` | `SpektralScheduler` |
+
+The scheduler exposes `createStage`, `getStage`, schedule inspection, diagnostics/profiling setters and getters, reset, last-run timings, and rolling snapshots.
+
+### `SpektralGraph`
+
+```ts
+graph.getSnapshot(): RenderGraphSnapshot
+```
+
+`RenderGraphSnapshot` is an experimental, deeply frozen schema with `schemaVersion: 1`. It contains ordered nodes, deduplicated resources, directed edges with dependency reasons, and `finalOutput`. Reads are cached by graph plan: unchanged plans return the same object, while a rebuild returns a new one and leaves earlier snapshots intact.
+
+Logical resource IDs come from declarations. Physical IDs are opaque and remain stable only within one renderer lifecycle. The snapshot is serializable and excludes GPU objects, WGSL, uniform or storage data, callbacks, and timings. Before initialization and after teardown, `getSnapshot()` returns the shared empty snapshot.
+
+## `usePointer(options?)`
+
+| Option | Default |
+| --- | --- |
+| `enabled` | `true` |
+| `requestFrame` | `'auto'` |
+| `capturePointer` | `true` |
+| `trackWhilePressedOutsideCanvas` | `true` |
+| `clickEnabled` | `true` |
+| `clickMaxDurationMs` | `350` |
+| `clickMaxMovePx` | `8` |
+| `clickButtons` | `[0]` |
+| `onMove`, `onDown`, `onUp`, `onClick` | — |
+
+`requestFrame` accepts `'auto'`, `'invalidate'`, `'advance'`, or `'none'`. Auto resolves to advance in manual mode, invalidate in on-demand mode, and none in always mode.
+
+The result contains `state: CurrentReadable<PointerState>`, `lastClick: CurrentReadable<PointerClick | null>`, and `resetClick()`. State includes `px`, `uv`, `ndc`, inside/pressed/dragging state, pointer identity and buttons, down position, deltas, and velocities.
+
+React applies a new options object on each render. In Svelte and Vue, pass `() => options` when `enabled`, outside tracking, callbacks, or other settings can change; the hook updates listeners without remounting.
+
+## `useTexture(urlInput, options?)`
+
+`urlInput` is `string[] | (() => string[])`. Svelte and Vue options may also be lazy; React options are an object.
+
+| Result | Type |
+| --- | --- |
+| `textures` | `CurrentReadable<LoadedTexture[] &#124; null>` |
+| `loading` | `CurrentReadable<boolean>` |
+| `error` | `CurrentReadable<Error &#124; null>` |
+| `errorReport` | `CurrentReadable<SpektralErrorReport &#124; null>` |
+| `reload` | `() => Promise<void>` |
+
+`TextureLoadOptions` contains `colorSpace`, `requestInit`, `decode`, `signal`, `update`, `flipY`, `premultipliedAlpha`, and `generateMipmaps`.
+
+## Advanced user context
+
+```ts
+useSpektralUserContext(): CurrentReadable<Record<string | symbol, unknown>>
+useSpektralUserContext<T>(namespace): CurrentReadable<T | undefined>
+setSpektralUserContext(namespace, valueOrFactory, options?): T | undefined
+```
+
+React also provides a context-bound `useSetSpektralUserContext()` setter.
+
+| Option | Values | Default |
+| --- | --- | --- |
+| `existing` | `'skip' &#124; 'replace' &#124; 'merge'` | `'skip'` |
+| `functionValue` | `'factory' &#124; 'value'` | `'factory'` |
+
+See [Frame Scheduler](/docs/frame-scheduler), [Hooks & Context](/docs/hooks-and-context), [Render Passes](/docs/render-passes), [Texture Loading](/docs/texture-loading), and [User Context](/docs/user-context).

@@ -1,0 +1,72 @@
+---
+title: Storage buffers
+description: Declare GPU buffers for compute writes, fragment reads, and CPU transfer.
+order: 10
+sidebar:
+  label: "Storage Buffers"
+---
+
+Storage buffers connect CPU data, compute shaders, and fragment shaders. Declare them in the material so Spektral can generate bindings and allocate GPU buffers during renderer creation.
+
+## Definition
+
+| Field | Required | Default |
+| --- | --- | --- |
+| `size` | Yes | Positive byte length, multiple of 4 |
+| `type` | Yes | Supported WGSL array type |
+| `access` | No | `'read-write'` |
+| `initialData` | No | `Float32Array`, `Uint32Array`, or `Int32Array` |
+
+Supported types are `array<f32>`, `array<vec2f>`, `array<vec3f>`, `array<vec4f>`, `array<u32>`, `array<i32>`, `array<vec4u>`, and `array<vec4i>`.
+
+```ts
+storageBuffers: {
+	particles: {
+		size: 1024 * 16,
+		type: 'array<vec4f>',
+		access: 'read-write'
+	}
+}
+```
+
+The material definition controls allocation and fragment visibility. Fragment bindings are always `var<storage, read>`. Compute access is declared separately on each pass:
+
+```ts
+const integrate = new ComputePass({
+	compute,
+	resources: {
+		particlesIn: { buffer: 'particles', access: 'storage-read' },
+		forces: { buffer: 'forces', access: 'storage-read-write' }
+	}
+});
+```
+
+The map key is the WGSL alias. It can differ from the material key. `storage-read` generates `var<storage, read>` and a graph read. `storage-read-write` generates `var<storage, read_write>`, reads the imported value, and publishes a current-frame version. A material buffer declared with `access: 'read'` cannot be bound as `storage-read-write`.
+
+Read-only descriptors accept `version: 'current' | 'initial'`. Current readers run after a writer in the same compute graph; initial readers run before it. A logical buffer can have only one read-write pass per graph segment.
+
+`initialData` must fit in the declared size. Its contents are cloned into the material snapshot and included in the material signature.
+
+## CPU writes
+
+```ts
+state.writeStorageBuffer('particles', data, { offset: 0 });
+```
+
+Offset and `data.byteLength` must be finite integer multiples of four, and the write must fit inside the buffer. Writes are queued and flushed before rendering or compute dispatch. An attempted batch is cleared even if the flush or render fails; it is not replayed automatically.
+
+Spektral copies the selected bytes when `writeStorageBuffer(...)` is called. Changing the source typed array afterward does not change the queued write.
+
+Runtime writes do not rebuild the renderer. They update the initial value imported by compute for that frame.
+
+## CPU readback
+
+```ts
+const bytes = await state.readStorageBuffer('particles');
+```
+
+Readback requires an initialized renderer and returns a copied `ArrayBuffer`. Before submitting the GPU copy, it flushes queued writes for that buffer in call order. A write followed by a read therefore observes the new data, including overlapping writes where the later call wins. The attempted writes are removed from the queue even if flushing or readback fails.
+
+Internally, readback copies into a temporary `MAP_READ | COPY_DST` staging buffer, maps it, copies the bytes, and destroys the staging buffer. This synchronizes GPU work with the CPU and should not be used as a per-frame feedback path.
+
+Adding or changing the buffer declaration rebuilds the renderer. Changing a pass resource topology requires a new pass instance. Read and write operations do neither. See [Compute Shaders](/docs/compute-shaders) and [Hooks API](/docs/api-hooks-reference#framestate).

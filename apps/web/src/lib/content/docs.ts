@@ -19,6 +19,7 @@ export type DocsDocument = {
 };
 type DocsNavigationItem = Pick<DocsDocument, 'href' | 'pathname' | 'section' | 'slug' | 'title'>;
 export type DocsNavigationGroup = {
+	id: string;
 	title: string;
 	items: readonly DocsNavigationItem[];
 };
@@ -28,20 +29,25 @@ export type DocsPaginationItem = Pick<DocsDocument, 'href' | 'title'>;
 export function getNavigationGroups(sectionId: string): DocsNavigationGroup[] {
 	const section = getContentSectionConfig(sectionId);
 	if (!section) return [];
-	const groups = new Map<string, DocsNavigationItem[]>();
+	const groups = new Map<string, { id: string; title: string; items: DocsNavigationItem[] }>();
 	for (const item of getContentSectionManifest(sectionId)) {
-		const category = item.category ?? section.label;
-		const group = groups.get(category) ?? [];
-		group.push({
+		if (item.sidebarHidden) continue;
+		const category = item.category;
+		const group = groups.get(item.categoryId) ?? {
+			id: item.categoryId,
+			title: category,
+			items: []
+		};
+		group.items.push({
 			title: item.name,
 			slug: item.slug,
 			section: category,
 			href: getContentSectionHref(sectionId, item.slug),
 			pathname: getContentSectionHref(sectionId, item.slug)
 		});
-		groups.set(category, group);
+		groups.set(item.categoryId, group);
 	}
-	return [...groups].map(([title, items]) => ({ title, items }));
+	return [...groups.values()];
 }
 
 export function getDocsDocument(sectionId: string, pathname: string): DocsDocument | null {

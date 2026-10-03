@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { contentSections, type ContentSectionConfig } from '$lib/site/views';
+	import { onMount } from 'svelte';
+	import { contentSections } from '$lib/content/sections';
+	import type { ContentSectionConfig } from '$lib/content/types';
 	import { contentUiDefaults } from '$lib/site/content-ui';
 	import { CheckIcon, ChevronExpandYIcon } from '$lib/icons';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
@@ -8,6 +10,10 @@
 
 	let { section }: { section: ContentSectionConfig } = $props();
 	const label = contentUiDefaults.shell.viewSwitcherLabel;
+	let hydrated = $state(false);
+	onMount(() => {
+		hydrated = true;
+	});
 </script>
 
 {#if contentSections.length > 1}
@@ -18,6 +24,7 @@
 					<Button
 						{...props}
 						variant="outline"
+						disabled={!hydrated}
 						class="w-full"
 						aria-label={`${label}: ${section.label}`}
 					>
