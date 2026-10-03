@@ -2,11 +2,10 @@
 	import LandingSection from './LandingSection.svelte';
 	import LandingActions from './LandingActions.svelte';
 	import LandingBrand from './LandingBrand.svelte';
-	import LandingGlass from './LandingGlass.svelte';
 </script>
 
-<LandingSection id="home" variant="full" class="isolate overflow-hidden">
-	<LandingGlass />
+<LandingSection id="home" variant="full" class="relative isolate overflow-hidden">
+	<div class="hero-glow pointer-events-none absolute inset-0 -z-10" aria-hidden="true"></div>
 	<div class="relative flex min-h-120 flex-col items-center justify-center gap-6 py-12 text-center">
 		<LandingBrand markOnly class="mb-2" />
 		<h1

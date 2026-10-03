@@ -62,8 +62,8 @@
 	--shadow-light: var(--foreground);
 	--input: oklch(100% 0 0 / 15%);
 	--ring: var(--primary);
-	--primary: oklch(57% 0.205 262.272);
-	--primary-to: oklch(47% 0.19 262.272);
+	--primary: oklch(57% 0.185 262.272);
+	--primary-to: oklch(47% 0.17 262.272);
 	--primary-foreground: oklch(100% 0 0);
 	--secondary: oklch(27.4% 0 0);
 	--secondary-foreground: oklch(98.5% 0 0);
@@ -260,4 +260,14 @@
 	from {
 		opacity: 0;
 	}
+}
+
+.hero-glow {
+	background: radial-gradient(
+		ellipse 130% 107.5% at 50% 10% in srgb,
+		transparent 37%,
+		var(--primary) 69%,
+		color-mix(in srgb, var(--primary-to) 12%, var(--primary-foreground)) 100%
+	);
+	filter: blur(clamp(1rem, 3.125vw, 2.5rem));
 }

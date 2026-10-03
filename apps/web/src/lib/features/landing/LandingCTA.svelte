@@ -1,7 +1,6 @@
 <script lang="ts">
 	import LandingSection from './LandingSection.svelte';
 	import LandingActions from './LandingActions.svelte';
-	import LandingGlass from './LandingGlass.svelte';
 	import * as Card from '$lib/components/ui/card';
 </script>
 
@@ -10,7 +9,7 @@
 		<div
 			class="relative isolate w-full overflow-hidden rounded-xl bg-card px-6 py-16 text-center shadow-sm sm:px-12 sm:py-20"
 		>
-			<LandingGlass />
+			<div class="hero-glow pointer-events-none absolute inset-0 -z-10" aria-hidden="true"></div>
 			<div class="relative mx-auto flex max-w-3xl flex-col items-center gap-6">
 				<h2
 					id="cta-title"
