@@ -18,7 +18,7 @@
 	<LandingPanel>
 		<ol class="grid gap-1 sm:grid-cols-2">
 			{#each steps as step, index (step.number)}
-				<li class={index % 2 === 1 ? 'sm:translate-y-36' : undefined}><LandingCard {...step} /></li>
+				<li class={index % 2 === 1 ? 'sm:translate-y-27' : undefined}><LandingCard {...step} /></li>
 			{/each}
 		</ol>
 	</LandingPanel>

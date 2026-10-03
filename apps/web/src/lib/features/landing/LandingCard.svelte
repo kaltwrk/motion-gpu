@@ -14,7 +14,7 @@
 	} = $props();
 </script>
 
-<Card.Root class="h-full min-h-72 justify-between gap-8 [--card-spacing:--spacing(6)]">
+<Card.Root class="h-full min-h-54 justify-between gap-8 [--card-spacing:--spacing(6)]">
 	<Card.Header>
 		<div class="flex items-center justify-between gap-4">
 			<span

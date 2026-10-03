@@ -77,8 +77,7 @@ export const steps = [
 	{
 		number: '01',
 		title: 'Define Material',
-		description:
-			'Start with a strict fragment contract and a deterministic material definition that can be rebuilt safely.',
+		description: 'Start with a strict fragment contract and a deterministic material definition.',
 		icon: CodeIcon
 	},
 	{
