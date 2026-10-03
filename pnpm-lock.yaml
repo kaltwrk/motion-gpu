@@ -196,7 +196,7 @@ importers:
         version: 5.56.9(@typescript-eslint/types@8.68.0)
       svelte-check:
         specifier: ^4.7.6
-        version: 4.7.6(picomatch@4.0.7)(svelte@5.56.9(@typescript-eslint/types@8.68.0))(typescript@5.9.3)
+        version: 4.7.6(picomatch@4.0.5)(svelte@5.56.9(@typescript-eslint/types@8.68.0))(typescript@5.9.3)
       tailwind-variants:
         specifier: ^3.3.0
         version: 3.3.1(tailwind-merge@3.6.0)(tailwindcss@4.3.0)
@@ -311,7 +311,7 @@ importers:
         version: 5.56.9(@typescript-eslint/types@8.68.0)
       svelte-check:
         specifier: ^4.7.6
-        version: 4.7.6(picomatch@4.0.5)(svelte@5.56.9(@typescript-eslint/types@8.68.0))(typescript@5.9.3)
+        version: 4.7.6(picomatch@4.0.7)(svelte@5.56.9(@typescript-eslint/types@8.68.0))(typescript@5.9.3)
       svelte2tsx:
         specifier: ^0.7.61
         version: 0.7.61(svelte@5.56.9(@typescript-eslint/types@8.68.0))(typescript@5.9.3)
