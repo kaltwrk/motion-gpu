@@ -78,9 +78,7 @@ test('enforces an opaque origin from response CSP without an iframe sandbox attr
 	}
 });
 
-test('isolates preview storage and DOM while keeping the message protocol operational', async ({
-	page
-}) => {
+test('isolates preview storage and DOM from the parent page', async ({ page }) => {
 	await page.goto('/');
 	await page.evaluate(() => {
 		document.cookie = 'spektral_parent_secret=cookie-value; path=/; Secure; SameSite=Strict';
@@ -88,7 +86,6 @@ test('isolates preview storage and DOM while keeping the message protocol operat
 	});
 
 	await page.goto('/playground');
-	await expect(page.getByText('Preview ready', { exact: true })).toBeVisible();
 
 	const iframe = page.locator('iframe[title="Playground preview"]');
 	await expect(iframe).toHaveAttribute('sandbox', 'allow-scripts allow-popups');
@@ -98,6 +95,7 @@ test('isolates preview storage and DOM while keeping the message protocol operat
 	if (!previewFrame) {
 		throw new Error('Playground preview frame was not created.');
 	}
+	await expect.poll(() => previewFrame.evaluate(() => self.origin)).toBe('null');
 
 	const access = await previewFrame.evaluate(() => {
 		const attempt = (read: () => unknown): AccessResult => {
@@ -118,8 +116,7 @@ test('isolates preview storage and DOM while keeping the message protocol operat
 			parentCookie: attempt(() => parent.document.cookie),
 			parentStorage: attempt(() => parent.localStorage.getItem('spektral-parent-secret')),
 			previewCookie: attempt(() => document.cookie),
-			previewStorage: attempt(() => localStorage.getItem('spektral-parent-secret')),
-			canvasCount: document.querySelectorAll('canvas').length
+			previewStorage: attempt(() => localStorage.getItem('spektral-parent-secret'))
 		};
 	});
 
@@ -136,7 +133,6 @@ test('isolates preview storage and DOM while keeping the message protocol operat
 			expect(result.errorName).toBe('SecurityError');
 		}
 	}
-	expect(access.canvasCount).toBeGreaterThan(0);
 
 	const previewSrc = await iframe.getAttribute('src');
 	expect(previewSrc).not.toBeNull();

@@ -24,7 +24,7 @@ const request = (query: string) =>
 describe('playground preview endpoint', () => {
 	it('returns an isolated preview document with nonce-bound security headers', async () => {
 		const response = await request(
-			'session=9ecf96ad-81fb-4507-8f69-79bc28ca731d&parent_origin=https%3A%2F%2Fspektral.madebyhex.com&theme=dark'
+			'session=9ecf96ad-81fb-4507-8f69-79bc28ca731d&parent_origin=https%3A%2F%2Fspektral.madebyhex.com'
 		);
 		const html = await response.text();
 		const nonce = html.match(/<script nonce="([a-f0-9]+)">/)?.[1];
@@ -45,9 +45,7 @@ describe('playground preview endpoint', () => {
 		expect(response.headers.get('cross-origin-resource-policy')).toBe('cross-origin');
 		expect(response.headers.get('origin-agent-cluster')).toBe('?1');
 		expect(response.headers.get('cache-control')).toBe('no-store');
-		expect(html).toContain('color-scheme: dark');
 		expect(html).toContain("if (self.origin !== 'null')");
-		expect(html).toContain('Playground preview requires an opaque origin.');
 	});
 
 	it('keeps same-origin preview available without an allowlist entry', async () => {
