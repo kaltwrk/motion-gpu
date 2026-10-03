@@ -44,6 +44,9 @@
 		let hasMeasured = false;
 
 		const updateWidth = () => {
+			// Keep the previous width while the shorter pending label is shown.
+			if (hasMeasured && copyState === 'copying') return;
+
 			const isInitialMeasurement = !hasMeasured;
 			hasMeasured = true;
 			copyContentWidth = Math.ceil(node.getBoundingClientRect().width);
