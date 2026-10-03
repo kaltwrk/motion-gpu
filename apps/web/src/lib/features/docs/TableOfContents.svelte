@@ -687,7 +687,7 @@
 			<Popover.Trigger
 				data-mobile-toc-trigger
 				aria-label={`${title}: ${mobileOpen ? groupTitle : (activeHeading?.text ?? groupTitle)}`}
-				class="flex min-h-11 w-full items-center gap-2.5 px-4 py-2.5 text-start text-sm text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+				class="flex min-h-11 w-full items-center gap-2.5 px-5 py-2.5 text-start text-sm text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
 			>
 				<!-- A data visualization of heading progress, rather than an interface icon. -->
 				<span
@@ -781,7 +781,7 @@
 									onclick={(event) => selectHeading(event, heading.id)}
 									aria-current={activeId === heading.id ? 'location' : undefined}
 									class={cn(
-										'flex min-h-8 items-center gap-2 rounded-xs py-1 font-medium tracking-normal transition-[color,box-shadow] duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transition-none md:max-w-48',
+										'flex min-h-8 items-center gap-2 rounded-xs py-1 font-medium tracking-normal transition-[color,box-shadow] duration-150 ease-out outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset motion-reduce:transition-none md:max-w-48',
 										isLinkHighlighted(heading.id)
 											? 'text-primary'
 											: 'text-muted-foreground hover:text-foreground'
