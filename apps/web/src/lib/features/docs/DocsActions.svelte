@@ -5,7 +5,7 @@
 	import type { SectionUiConfig } from '$lib/site/content-ui';
 	import { siteConfig } from '$lib/site/site';
 	import { Button } from '$lib/components/ui/button';
-	import { ButtonGroup, ButtonGroupSeparator } from '$lib/components/ui/button-group';
+	import { ButtonGroup } from '$lib/components/ui/button-group';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { ChevronDownIcon, CopyIcon } from '$lib/icons';
 	import { copyRawMarkdown, resolveDocsActionGroups } from './actions';
@@ -92,12 +92,11 @@
 
 <ButtonGroup
 	aria-label={config.label}
-	class="rounded-lg shadow-2xs bg-primary"
 >
 	{#if config.showCopyMarkdown}<Button
 		size="sm"
 		variant="default"
-		class="shadow-none active:not-aria-[haspopup]:scale-100"
+		class="active:not-aria-[haspopup]:scale-100"
 		aria-busy={copyState === 'copying'}
 		onclick={() => void copyMarkdown()}
 	>
@@ -121,7 +120,6 @@
 	</Button>{/if}
 
 	{#if config.showAssistantLinks && hasActionLinks}
-		{#if config.showCopyMarkdown}<ButtonGroupSeparator class="bg-white/20" />{/if}
 		<DropdownMenu.Root>
 			<DropdownMenu.Trigger>
 				{#snippet child({ props })}
@@ -130,7 +128,6 @@
 						type="button"
 						variant="default"
 						size="icon-sm"
-						class="shadow-none"
 						aria-label={config.moreLabel}
 					>
 						<ChevronDownIcon aria-hidden="true" />
