@@ -12,7 +12,7 @@ export type PlaygroundDemoDefinition = {
 	variants: Record<PlaygroundFramework, PlaygroundDemoVariant>;
 };
 
-const demoFileModules = import.meta.glob('./demos/**/*', {
+const demoFileModules = import.meta.glob('/src/lib/site/demos/**/*', {
 	query: '?raw',
 	import: 'default',
 	eager: true
