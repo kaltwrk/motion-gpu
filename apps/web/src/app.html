@@ -1,119 +1,90 @@
 <!doctype html>
-<html lang="en">
+<html lang="%site.language%">
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<style>
-			html[data-docs-package-manager] .package-manager-command {
+			.docs-framework-content {
+				display: none;
+			}
+
+			.docs-framework-content[data-default='true'] {
+				display: block;
+			}
+
+			html[data-docs-framework] .docs-framework-content {
 				display: none !important;
 			}
 
-			html[data-docs-package-manager='npm'] .package-manager-command[data-package-manager='npm'],
-			html[data-docs-package-manager='pnpm'] .package-manager-command[data-package-manager='pnpm'],
-			html[data-docs-package-manager='bun'] .package-manager-command[data-package-manager='bun'],
-			html[data-docs-package-manager='yarn'] .package-manager-command[data-package-manager='yarn'] {
+			html[data-docs-framework='svelte'] .docs-framework-content[data-framework='svelte'],
+			html[data-docs-framework='react'] .docs-framework-content[data-framework='react'],
+			html[data-docs-framework='vue'] .docs-framework-content[data-framework='vue'] {
 				display: block !important;
 			}
 
-			html[data-docs-package-manager]:not([data-docs-package-manager-ready])
-				.package-manager-active-line {
+			html[data-docs-framework]:not([data-docs-framework-ready])
+				[data-slot='tabs-trigger'][data-framework] {
+				color: var(--muted-foreground) !important;
+			}
+
+			html[data-docs-framework]:not([data-docs-framework-ready])
+				[data-slot='tabs-trigger'][data-framework]::after {
 				opacity: 0 !important;
 			}
 
-			html[data-docs-package-manager]:not([data-docs-package-manager-ready]) .package-manager-tab {
-				color: var(--color-foreground-muted);
+			html[data-docs-framework='svelte']:not([data-docs-framework-ready])
+				[data-slot='tabs-trigger'][data-framework='svelte'],
+			html[data-docs-framework='react']:not([data-docs-framework-ready])
+				[data-slot='tabs-trigger'][data-framework='react'],
+			html[data-docs-framework='vue']:not([data-docs-framework-ready])
+				[data-slot='tabs-trigger'][data-framework='vue'] {
+				color: var(--foreground) !important;
 			}
 
-			html[data-docs-package-manager='npm']:not([data-docs-package-manager-ready])
-				.package-manager-tab[data-package-manager='npm'],
-			html[data-docs-package-manager='pnpm']:not([data-docs-package-manager-ready])
-				.package-manager-tab[data-package-manager='pnpm'],
-			html[data-docs-package-manager='bun']:not([data-docs-package-manager-ready])
-				.package-manager-tab[data-package-manager='bun'],
-			html[data-docs-package-manager='yarn']:not([data-docs-package-manager-ready])
-				.package-manager-tab[data-package-manager='yarn'] {
-				color: var(--color-accent);
+			html[data-docs-framework='svelte']:not([data-docs-framework-ready])
+				[data-slot='tabs-trigger'][data-framework='svelte']::after,
+			html[data-docs-framework='react']:not([data-docs-framework-ready])
+				[data-slot='tabs-trigger'][data-framework='react']::after,
+			html[data-docs-framework='vue']:not([data-docs-framework-ready])
+				[data-slot='tabs-trigger'][data-framework='vue']::after {
+				opacity: 1 !important;
 			}
 
-			html[data-docs-package-manager='npm']:not([data-docs-package-manager-ready])
-				.package-manager-tab[data-package-manager='npm']::after,
-			html[data-docs-package-manager='pnpm']:not([data-docs-package-manager-ready])
-				.package-manager-tab[data-package-manager='pnpm']::after,
-			html[data-docs-package-manager='bun']:not([data-docs-package-manager-ready])
-				.package-manager-tab[data-package-manager='bun']::after,
-			html[data-docs-package-manager='yarn']:not([data-docs-package-manager-ready])
-				.package-manager-tab[data-package-manager='yarn']::after {
-				opacity: 1;
-			}
-
-			html[data-spektral-framework] .framework-code {
-				display: none !important;
-			}
-
-			html[data-spektral-framework='svelte'] .framework-code[data-framework='svelte'],
-			html[data-spektral-framework='react'] .framework-code[data-framework='react'],
-			html[data-spektral-framework='vue'] .framework-code[data-framework='vue'] {
-				display: block !important;
-			}
-
-			html[data-spektral-framework]:not([data-spektral-framework-ready]) .framework-active-line {
+			html[data-docs-framework]:not([data-docs-framework-ready]) .installation-framework-icon {
+				scale: 0.25 !important;
 				opacity: 0 !important;
+				filter: blur(4px) !important;
+				transition: none !important;
 			}
 
-			html[data-spektral-framework]:not([data-spektral-framework-ready]) .framework-tab {
-				color: var(--color-foreground-muted);
-			}
-
-			html[data-spektral-framework='svelte']:not([data-spektral-framework-ready])
-				.framework-tab[data-framework='svelte'],
-			html[data-spektral-framework='react']:not([data-spektral-framework-ready])
-				.framework-tab[data-framework='react'],
-			html[data-spektral-framework='vue']:not([data-spektral-framework-ready])
-				.framework-tab[data-framework='vue'] {
-				color: var(--color-accent);
-			}
-
-			html[data-spektral-framework='svelte']:not([data-spektral-framework-ready])
-				.framework-tab[data-framework='svelte']::after,
-			html[data-spektral-framework='react']:not([data-spektral-framework-ready])
-				.framework-tab[data-framework='react']::after,
-			html[data-spektral-framework='vue']:not([data-spektral-framework-ready])
-				.framework-tab[data-framework='vue']::after {
-				opacity: 1;
+			html[data-docs-framework='svelte']:not([data-docs-framework-ready])
+				.installation-framework-icon[data-framework='svelte'],
+			html[data-docs-framework='react']:not([data-docs-framework-ready])
+				.installation-framework-icon[data-framework='react'],
+			html[data-docs-framework='vue']:not([data-docs-framework-ready])
+				.installation-framework-icon[data-framework='vue'] {
+				scale: 1 !important;
+				opacity: 1 !important;
+				filter: none !important;
 			}
 		</style>
 		<script>
 			(() => {
 				document.documentElement.classList.add('js');
 
-				const storageKey = 'spektral-docs-theme';
-				const storedTheme = localStorage.getItem(storageKey);
-				const isDark =
-					storedTheme === 'dark' ||
-					(storedTheme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+				const config = %site.preferences%;
+				const read = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
+				const storedTheme = read(config.theme.storageKey);
+				const theme = storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : config.theme.defaultMode;
+				const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 				document.documentElement.classList.toggle('dark', isDark);
 				document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
-
-				const packageManagerStorageKey = 'spektral-docs-package-manager';
-				const packageManagerDefault = 'npm';
-				const enabledPackageManagers = ['npm', 'pnpm', 'bun', 'yarn'];
-				const storedPackageManager = localStorage.getItem(packageManagerStorageKey);
-				const activePackageManager = enabledPackageManagers.includes(storedPackageManager)
-					? storedPackageManager
-					: packageManagerDefault;
-
-				if (activePackageManager) {
-					document.documentElement.dataset.docsPackageManager = activePackageManager;
-				}
-
-				const frameworkStorageKey = 'spektralFramework';
-				const enabledFrameworks = ['svelte', 'react', 'vue'];
-				const storedFramework = localStorage.getItem(frameworkStorageKey);
-				const activeFramework = enabledFrameworks.includes(storedFramework)
-					? storedFramework
-					: 'svelte';
-
-				document.documentElement.dataset.spektralFramework = activeFramework;
+				const preference = (setting) => {
+					const value = read(setting.storageKey);
+					return setting.enabled.includes(value) ? value : setting.default;
+				};
+				document.documentElement.dataset.docsPackageManager = preference(config.packageManager);
+				document.documentElement.dataset.docsFramework = preference(config.framework);
 			})();
 		</script>
 		%sveltekit.head%

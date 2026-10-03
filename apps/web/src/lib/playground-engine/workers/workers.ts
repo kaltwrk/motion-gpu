@@ -1,6 +1,6 @@
 import type { PlaygroundFile } from '../types';
 
-export type PlaygroundFramework = 'svelte' | 'react' | 'vue';
+type PlaygroundFramework = 'svelte' | 'react' | 'vue';
 
 export interface BundleOptions {
 	framework: PlaygroundFramework;

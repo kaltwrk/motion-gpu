@@ -1,255 +1,167 @@
-import type { ContentItem, ContentSectionLink } from '$lib/config/navigation';
-import { contentSections, type ContentSectionConfig } from '$lib/config/navigation';
-import { mergeSectionUiConfig, type SectionUiConfig } from '$lib/config/content-ui';
-import { parseContentSource } from '$lib/content/frontmatter';
-import {
-	flattenNavigationToManifest,
-	getAdjacentItems,
-	getHref,
-	getItemBySlug
-} from '$lib/content/manifest';
+import * as icons from '$lib/icons';
+import type { ContentItem, ContentSectionConfig } from './types';
+import { buildContentRegistry, type RegisteredPage } from './registry';
+import { mergeSectionUiConfig, type SectionUiConfig } from '$lib/site/content-ui';
+import { parseContentSource } from './frontmatter';
+import { getAdjacentItems, getHref } from './manifest';
 import GithubSlugger from 'github-slugger';
 import type { Component } from 'svelte';
 
 export type ContentSectionId = string;
-
 export type ContentMetadata = {
 	href: string;
 	slug: string;
 	title: string;
 	description?: string;
-	sourceType: 'svx' | 'svelte';
+	sourceType: 'markdown' | 'svelte';
 };
+export type ContentTocHeading = { id: string; text: string; level: number };
+export type ContentModule = { default: Component; metadata?: Record<string, unknown> };
 
-export type ContentTocHeading = {
-	id: string;
-	text: string;
-	level: number;
-};
-
-export type ContentModule = {
-	default: Component;
-	metadata?: Record<string, unknown>;
-};
-
-function basePathFor(id: string): string {
-	return `/${id}`;
-}
-
-const contentSectionsById = Object.fromEntries(
-	contentSections.map((section) => [section.id, section])
-) as Record<ContentSectionId, ContentSectionConfig>;
-
-const contentSectionOrder: ContentSectionId[] = contentSections.map((section) => section.id);
-
-const contentManifests = Object.fromEntries(
-	contentSections.map((section) => [section.id, flattenNavigationToManifest(section.navigation)])
-) as Record<ContentSectionId, ContentItem[]>;
-
-const allSvxRaw = import.meta.glob<string>('/src/lib/content/**/*.svx', {
-	query: '?raw',
-	eager: true,
-	import: 'default'
-});
-
-const allSvxModules = import.meta.glob<ContentModule>('/src/lib/content/**/*.svx', {
+const prefix = '/src/lib/site/content/';
+const allMarkdownRaw = import.meta.glob<string>(
+	[
+		'/src/lib/site/content/**/*.svx',
+		'/src/lib/site/content/**/*.mdx',
+		'/src/lib/site/content/**/*.md'
+	],
+	{ query: '?raw', eager: true, import: 'default' }
+);
+const allMarkdownModules = import.meta.glob<ContentModule>([
+	'/src/lib/site/content/**/*.svx',
+	'/src/lib/site/content/**/*.mdx',
+	'/src/lib/site/content/**/*.md',
+	'!/src/lib/site/content/**/_meta.*'
+]);
+const allSveltePages = import.meta.glob<ContentModule>('/src/lib/site/content/**/*.svelte', {
 	eager: true
 });
+const registry = buildContentRegistry([
+	...Object.entries(allMarkdownRaw).map(([path, raw]) => {
+		const { metadata, body } = parseContentSource(raw, path);
+		if (/\/_meta\.(svx|mdx|md)$/.test(path) && body.trim())
+			throw new Error(`${path} must contain frontmatter only. Use index for a landing page.`);
+		return { path: path.slice(prefix.length), metadata };
+	}),
+	...Object.entries(allSveltePages).map(([path, { metadata }]) => ({
+		path: path.slice(prefix.length),
+		metadata
+	}))
+]);
 
-const allSvelteModules = import.meta.glob<ContentModule>('/src/lib/content/**/*.svelte', {
-	eager: true
+export const contentSections: ContentSectionConfig[] = registry.map((view) => {
+	if (!Object.hasOwn(icons, view.icon))
+		throw new Error(`Unknown icon ${view.icon} in ${view.id}/index. Use an export from lib/icons.`);
+	return {
+		id: view.id,
+		label: view.label,
+		layout: view.layout,
+		ui: view.ui,
+		icon: icons[view.icon as keyof typeof icons]
+	};
 });
-
-const allSvelteMetadatas = import.meta.glob<Record<string, unknown>>(
-	'/src/lib/content/**/*.svelte',
-	{
-		eager: true,
-		import: 'metadata'
-	}
+const sectionsById = new Map(contentSections.map((section) => [section.id, section]));
+const pagesBySection = new Map(registry.map((view) => [view.id, view.pages]));
+const pagesByRoute = new Map(
+	registry.flatMap((view) =>
+		view.pages.map((page) => [getHref(`/${view.id}`, page.slug), page] as const)
+	)
+);
+const manifests = new Map(
+	registry.map((view) => [
+		view.id,
+		view.pages.map(
+			({ slug, name, category, categoryId, sidebarHidden, showPagination }): ContentItem => ({
+				slug,
+				name,
+				category,
+				categoryId,
+				sidebarHidden,
+				showPagination
+			})
+		)
+	])
 );
 
-function toBaseKey(sectionId: string, slug: string): string {
-	const filename = slug === '' ? 'index' : slug;
-	return `/src/lib/content/${sectionId}/${filename}`;
-}
-
-function toDirectoryIndexKey(sectionId: string, slug: string): string {
-	return `/src/lib/content/${sectionId}/${slug}/index`;
-}
-
-function findSvxKey(sectionId: string, slug: string): string | null {
-	const svxKey = `${toBaseKey(sectionId, slug)}.svx`;
-	if (Object.prototype.hasOwnProperty.call(allSvxModules, svxKey)) return svxKey;
-	if (!slug) return null;
-	const directoryIndexKey = `${toDirectoryIndexKey(sectionId, slug)}.svx`;
-	return Object.prototype.hasOwnProperty.call(allSvxModules, directoryIndexKey)
-		? directoryIndexKey
-		: null;
-}
-
-function findSvelteKey(sectionId: string, slug: string): string | null {
-	const svelteKey = `${toBaseKey(sectionId, slug)}.svelte`;
-	if (Object.prototype.hasOwnProperty.call(allSvelteModules, svelteKey)) return svelteKey;
-	if (!slug) return null;
-	const directoryIndexKey = `${toDirectoryIndexKey(sectionId, slug)}.svelte`;
-	return Object.prototype.hasOwnProperty.call(allSvelteModules, directoryIndexKey)
-		? directoryIndexKey
-		: null;
-}
-
 export function getContentSectionConfig(sectionId: ContentSectionId) {
-	return contentSectionsById[sectionId];
+	return sectionsById.get(sectionId);
 }
-
 export function getContentSectionUiConfig(sectionId: ContentSectionId): SectionUiConfig {
-	return mergeSectionUiConfig(contentSectionsById[sectionId].ui);
+	return mergeSectionUiConfig(sectionsById.get(sectionId)?.ui);
 }
-
-export function getContentSectionLinks(order: ContentSectionId[] = contentSectionOrder) {
-	return order.map((sectionId): ContentSectionLink => {
-		const section = contentSectionsById[sectionId];
-		return {
-			label: section.label,
-			href: basePathFor(section.id),
-			icon: section.icon,
-			description: section.description
-		};
-	});
+/** All routable pages, including pages hidden from the sidebar. */
+export function getContentSectionManifest(sectionId: ContentSectionId): ContentItem[] {
+	return manifests.get(sectionId) ?? [];
 }
-
-export function getContentSectionManifest(sectionId: ContentSectionId) {
-	return contentManifests[sectionId];
+export function getContentSectionPages(sectionId: ContentSectionId): readonly RegisteredPage[] {
+	return pagesBySection.get(sectionId) ?? [];
 }
-
 export function getContentSectionSlug(sectionId: ContentSectionId, pathname: string) {
-	return pathToSlug(basePathFor(sectionId), pathname);
+	const normalized = pathname.replace(/\/+$/, '');
+	return normalized === `/${sectionId}`
+		? ''
+		: normalized.replace(new RegExp(`^/${sectionId}/`), '');
 }
-
 export function getContentSectionMetadata(
 	sectionId: ContentSectionId,
 	pathname: string
 ): ContentMetadata | null {
-	const section = contentSectionsById[sectionId];
-	const normalizedPath = normalizePath(pathname);
-	const slug = pathToSlug(basePathFor(sectionId), normalizedPath);
-	const svxKey = findSvxKey(sectionId, slug);
-	const svelteKey = findSvelteKey(sectionId, slug);
-
-	if (!svxKey && !svelteKey) {
-		return null;
-	}
-
-	const navItem = getItemBySlug(contentManifests[sectionId], slug);
-	const fallbackTitle = slugToTitle(slug) || section.label;
-	let title = navItem?.name ?? fallbackTitle;
-	let description: string | undefined;
-	const sourceType: ContentMetadata['sourceType'] = svxKey ? 'svx' : 'svelte';
-
-	if (svxKey) {
-		const rawSource = allSvxRaw[svxKey];
-		const { metadata } = parseContentSource(rawSource);
-		title = metadata.name ?? metadata.title ?? title;
-		description = metadata.description;
-	} else if (svelteKey) {
-		const meta = allSvelteMetadatas[svelteKey];
-		title =
-			(typeof meta.name === 'string' ? meta.name : undefined) ??
-			(typeof meta.title === 'string' ? meta.title : undefined) ??
-			title;
-		description = typeof meta.description === 'string' ? meta.description : undefined;
-	}
-
+	const href = pathname.replace(/\/+$/, '');
+	if (href !== `/${sectionId}` && !href.startsWith(`/${sectionId}/`)) return null;
+	const page = pagesByRoute.get(href);
+	if (!page) return null;
 	return {
-		href: normalizedPath,
-		slug,
-		title,
-		description,
-		sourceType
+		href,
+		slug: page.slug,
+		title: page.metadata.title ?? page.name,
+		description: page.metadata.description,
+		sourceType: page.sourceType
 	};
 }
-
-export function getContentSectionModule(
+export async function getContentSectionModule(
 	sectionId: ContentSectionId,
 	slug: string
-): ContentModule | null {
-	const svxKey = findSvxKey(sectionId, slug);
-	if (svxKey) {
-		return allSvxModules[svxKey] ?? null;
-	}
-
-	const svelteKey = findSvelteKey(sectionId, slug);
-	if (svelteKey) {
-		return allSvelteModules[svelteKey] ?? null;
-	}
-
-	return null;
+): Promise<ContentModule | null> {
+	const page = pagesByRoute.get(getContentSectionHref(sectionId, slug));
+	if (!page) return null;
+	return page.sourceType === 'svelte'
+		? allSveltePages[`${prefix}${page.path}`]
+		: await allMarkdownModules[`${prefix}${page.path}`]();
 }
-
 export function getContentSectionRawSource(
 	sectionId: ContentSectionId,
 	slug: string
 ): string | null {
-	const svxKey = findSvxKey(sectionId, slug);
-	if (!svxKey) return null;
-	return allSvxRaw[svxKey] ?? null;
+	const page = pagesByRoute.get(getContentSectionHref(sectionId, slug));
+	return page?.sourceType === 'markdown' ? (allMarkdownRaw[`${prefix}${page.path}`] ?? null) : null;
 }
-
 export function getContentSectionTocHeadings(
 	sectionId: ContentSectionId,
 	slug: string,
 	selector: string
 ): ContentTocHeading[] {
-	const rawSource = getContentSectionRawSource(sectionId, slug);
-	if (!rawSource) return [];
-
-	const { body } = parseContentSource(rawSource);
-	return extractTocHeadings(body, selector);
+	const source = getContentSectionRawSource(sectionId, slug);
+	return source ? extractTocHeadings(parseContentSource(source).body, selector) : [];
 }
-
-export function getContentSectionItemBySlug(sectionId: ContentSectionId, slug: string) {
-	return getItemBySlug(contentManifests[sectionId], slug);
-}
-
 export function getContentSectionAdjacentItems(sectionId: ContentSectionId, slug: string) {
-	return getAdjacentItems(contentManifests[sectionId], slug);
+	return getAdjacentItems(
+		getContentSectionManifest(sectionId).filter((page) => !page.sidebarHidden),
+		slug
+	);
 }
-
 export function getContentSectionHref(sectionId: ContentSectionId, slug: string) {
-	return getHref(basePathFor(sectionId), slug);
+	return getHref(`/${sectionId}`, slug);
 }
-
 export function getContentSectionRawHref(sectionId: ContentSectionId, slug: string) {
-	const prefix = basePathFor(sectionId);
-	const normalizedSlug = slug || 'index';
-	return `${prefix}/raw/${normalizedSlug}`;
+	return `/${sectionId}/raw/${slug || 'index'}`;
 }
-
 export function getContentSectionByPathname(pathname: string) {
-	const normalized = normalizePath(pathname);
-	const section = Object.values(contentSectionsById).find((s) => {
-		const bp = basePathFor(s.id);
-		return normalized === bp || normalized.startsWith(`${bp}/`);
-	});
-	return section ?? null;
-}
-
-function slugToTitle(slug: string) {
-	return slug
-		.split('/')
-		.filter(Boolean)
-		.map((segment) => segment.replace(/[-_]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()))
-		.join(' - ');
-}
-
-function normalizePath(path: string) {
-	if (path === '/') return path;
-	return path.replace(/\/+$/, '');
-}
-
-function pathToSlug(basePath: string, pathname: string) {
-	const normalized = normalizePath(pathname);
-	if (normalized === basePath || normalized === '') return '';
-	return normalized.replace(new RegExp(`^${basePath}/`), '');
+	const normalized = pathname.replace(/\/+$/, '');
+	return (
+		contentSections.find(
+			(view) => normalized === `/${view.id}` || normalized.startsWith(`/${view.id}/`)
+		) ?? null
+	);
 }
 
 function extractHeadingLevels(selector: string) {

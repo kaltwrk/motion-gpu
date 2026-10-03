@@ -1,5 +1,7 @@
 import {
 	createComputeExternalResolutionState,
+	registerComputeExternalResource,
+	type ComputeExternalRegistration,
 	resolveComputePassResources,
 	resolveTrustedComputePassResources,
 	type ComputeExternalResolutionState,
@@ -43,6 +45,7 @@ interface ComputePassResolutionCacheEntry {
 	topology: ComputePassStaticTopology;
 	physicalReferences: readonly unknown[];
 	resources: ResolvedComputePassResources;
+	externalRegistrations: readonly ComputeExternalRegistration[];
 }
 
 function externalProviderError(
@@ -226,6 +229,9 @@ export class ComputePassResourceResolutionCache {
 			cached?.topology === topology &&
 			matchesPhysicalReferences(topology, context, this.externalState, cached.physicalReferences)
 		) {
+			for (const registration of cached.externalRegistrations) {
+				registerComputeExternalResource(registration, context, this.externalState);
+			}
 			this.stats.steadyStateHits += 1;
 			return cached.resources;
 		}
@@ -236,7 +242,32 @@ export class ComputePassResourceResolutionCache {
 			context
 		);
 		const physicalReferences = collectPhysicalReferences(topology, context, this.externalState);
-		this.entries.set(input.pass, { topology, physicalReferences, resources });
+		const externalRegistrations: ComputeExternalRegistration[] = [];
+		for (const entry of resources.entries) {
+			if (entry.source !== 'external') continue;
+			const descriptor = topology.resources[entry.alias]!;
+			const kind =
+				'buffer' in descriptor
+					? 'buffer'
+					: 'sampler' in descriptor
+						? 'sampler'
+						: typeof descriptor.texture !== 'string' && 'externalTexture' in descriptor.texture
+							? 'texture'
+							: undefined;
+			externalRegistrations.push({
+				object: entry.physicalId as object,
+				resourceId: entry.logicalId,
+				alias: entry.alias,
+				metadata: this.externalState.metadataByResourceId.get(entry.logicalId)!,
+				kind
+			});
+		}
+		this.entries.set(input.pass, {
+			topology,
+			physicalReferences,
+			resources,
+			externalRegistrations
+		});
 		this.stats.planBuilds += 1;
 		this.stats.entriesAllocated += resources.entries.length;
 		this.stats.readsAllocated += resources.reads.length;

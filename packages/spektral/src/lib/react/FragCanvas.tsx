@@ -14,6 +14,7 @@ import type {
 import {
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useState,
 	type ComponentPropsWithoutRef,
@@ -240,7 +241,20 @@ export function FragCanvas({
 		errorHistoryLimit,
 		onErrorHistory
 	});
-	runtimePropsRef.current = {
+	useLayoutEffect(() => {
+		runtimePropsRef.current = {
+			material,
+			renderTargets,
+			passes,
+			clearColor,
+			color,
+			adapterOptions,
+			deviceDescriptor,
+			onError,
+			errorHistoryLimit,
+			onErrorHistory
+		};
+	}, [
 		material,
 		renderTargets,
 		passes,
@@ -251,7 +265,7 @@ export function FragCanvas({
 		onError,
 		errorHistoryLimit,
 		onErrorHistory
-	};
+	]);
 
 	const [errorReport, setErrorReport] = useState<SpektralErrorReport | null>(null);
 	const dismissErrorOverlay = useCallback((): void => {

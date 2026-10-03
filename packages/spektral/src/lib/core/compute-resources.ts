@@ -819,6 +819,38 @@ function registerExternalMetadata(
 	state.metadataByResourceId.set(resourceId, metadata);
 }
 
+/** Immutable registration retained with a cached physical resolution plan. */
+export interface ComputeExternalRegistration {
+	object: object;
+	resourceId: string | symbol;
+	alias: string;
+	metadata: string;
+	kind: 'texture' | 'buffer' | 'sampler' | undefined;
+}
+
+/** Revalidates frame-wide invariants without rebuilding resource descriptors. */
+export function registerComputeExternalResource(
+	registration: ComputeExternalRegistration,
+	context: ComputeResourceResolverContext,
+	state: ComputeExternalResolutionState
+): void {
+	registerExternalIdentity(
+		registration.object,
+		registration.resourceId,
+		context,
+		registration.alias,
+		state,
+		registration.kind
+	);
+	registerExternalMetadata(
+		registration.resourceId,
+		registration.metadata,
+		context,
+		registration.alias,
+		state
+	);
+}
+
 /**
  * Maps a supported 2D color texture format to its compute sampled contract.
  */

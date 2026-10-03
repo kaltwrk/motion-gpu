@@ -7,8 +7,8 @@ import {
 	getContentSectionTocHeadings,
 	getContentSectionUiConfig
 } from '$lib/content/sections';
-import { contentSections } from '$lib/config/navigation';
-import { resolveTocSelector } from '$lib/config/content-ui';
+import { contentSections } from '$lib/content/sections';
+import { resolveTocSelector } from '$lib/site/content-ui';
 
 export const prerender = true;
 
@@ -33,7 +33,6 @@ export const load: LayoutLoad = ({ params, url }) => {
 		metadata,
 		tocHeadings,
 		previousDoc: previous,
-		nextDoc: next,
-		docOrigin: url.origin
+		nextDoc: next
 	};
 };

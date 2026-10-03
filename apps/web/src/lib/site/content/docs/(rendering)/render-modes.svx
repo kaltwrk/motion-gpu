@@ -1,0 +1,80 @@
+---
+title: Render modes
+description: Control frame submission and scheduler diagnostics.
+order: 0
+sidebar:
+  label: "Render Modes"
+---
+
+`renderMode` controls when scheduled work results in GPU rendering. Scheduler tasks still run on animation-frame ticks; the mode gates render submission.
+
+## Modes
+
+| Mode | Renders when | Typical use |
+| --- | --- | --- |
+| `'always'` | Every tick while `autoRender` is true | Animation, simulation, video |
+| `'on-demand'` | Invalidated or advanced | Interaction and infrequent updates |
+| `'manual'` | Explicitly advanced | Capture, deterministic stepping, tests |
+
+Set the initial mode on `FragCanvas` or update it from context:
+
+```ts
+const gpu = useSpektral();
+gpu.renderMode.set('on-demand');
+gpu.invalidate();
+```
+
+Switching to `on-demand` creates one initial invalidation. In that mode, `invalidate()` and `advance()` both open the next render gate. In `manual`, only `advance()` does.
+
+## `autoRender`
+
+`autoRender` is a global gate. When false, `shouldRender()` rejects every mode, including pending manual advances. The runtime loop and scheduler continue to run.
+
+```ts
+gpu.autoRender.set(false);
+gpu.autoRender.set(true);
+```
+
+## What invalidates on-demand rendering
+
+- `gpu.invalidate()` or `state.invalidate()`;
+- a running `useFrame` task whose invalidation policy resolves to `'always'`;
+- an `on-change` policy whose token changed;
+- switching into `on-demand`;
+- pointer tracking when `usePointer` resolves its request mode to invalidation.
+
+`useFrame` defaults to automatic invalidation. Set `autoInvalidate: false` or an explicit invalidation policy for tasks that should not keep on-demand rendering active.
+
+## Stages and dependencies
+
+Stages group tasks and can order themselves with `before` and `after`. A stage callback receives `(state, runTasks)` and may wrap or skip its tasks. The default main-stage key is an internal symbol and cannot be addressed as `'main'`.
+
+Task and stage graphs are topologically sorted. Missing references and cycles throw. Inspect the resolved order with `gpu.scheduler.getSchedule()`.
+
+## Timing diagnostics
+
+The scheduler exposes last-run timings and rolling profiling:
+
+```ts
+const scheduler = gpu.scheduler;
+scheduler.setProfilingWindow(120);
+scheduler.setDiagnosticsEnabled(true);
+scheduler.setProfilingEnabled(true);
+
+const lastRun = scheduler.getLastRunTimings();
+const profile = scheduler.getProfilingSnapshot();
+```
+
+The profiling window must be a safe integer from 1 through 10,000 frames. Schedule, last-run timing, and profiling results are deeply frozen snapshots; copy them before adding application metadata.
+
+Diagnostics and profiling currently share one internal toggle, so advanced preset overrides must give them the same value. Available presets are `'performance'`, `'balanced'`, and `'debug'`:
+
+```ts
+import { applySchedulerPreset } from 'spektral/advanced';
+
+applySchedulerPreset(gpu.scheduler, 'balanced');
+```
+
+Use `captureSchedulerDebugSnapshot(...)` to collect the configuration, schedule, last-run timings, and profiling snapshot in one serializable object.
+
+See [Frame Scheduler](/docs/frame-scheduler) for task registration and invalidation policies.

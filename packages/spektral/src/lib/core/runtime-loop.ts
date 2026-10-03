@@ -8,7 +8,7 @@ import {
 import { createRenderer } from './renderer.js';
 import { buildRendererPipelineSignature } from './recompile-policy.js';
 import { assertUniformValueForType } from './uniforms.js';
-import type { FrameRegistry } from './frame-registry.js';
+import { getFrameScheduling, type FrameRegistry } from './frame-registry.js';
 import type {
 	AnyPass,
 	ColorPipelineOptions,
@@ -93,8 +93,10 @@ export function createSpektralRuntimeLoop(
 	options: SpektralRuntimeLoopOptions
 ): SpektralRuntimeLoop {
 	const { canvas: canvasElement, registry, size } = options;
+	const frameScheduling = getFrameScheduling(registry);
 	let frameId: number | null = null;
 	let retryTimerId: ReturnType<typeof setTimeout> | null = null;
+	let errorClearTimerId: ReturnType<typeof setTimeout> | null = null;
 	let renderer: Renderer | null = null;
 	let isDisposed = false;
 
@@ -141,9 +143,11 @@ export function createSpektralRuntimeLoop(
 	let nextRendererRetryAt = 0;
 	let materialResolveAttempts = 0;
 	let rendererRebuildPromise: Promise<void> | null = null;
+	let needsDeviceRecoveryFrame = false;
 
-	const runtimeUniforms: Record<string, UniformValue> = {};
-	const runtimeTextures: TextureMap = {};
+	// Material identifiers such as "toString" must not inherit implicit overrides.
+	const runtimeUniforms = Object.create(null) as Record<string, UniformValue>;
+	const runtimeTextures = Object.create(null) as TextureMap;
 	let activeUniforms: Readonly<Record<string, UniformValue>> = {};
 	let activeTextures: Readonly<Record<string, { source?: TextureValue }>> = {};
 	let uniformKeys: string[] = [];
@@ -165,14 +169,14 @@ export function createSpektralRuntimeLoop(
 	let activeErrorKey: string | null = null;
 	let errorHistory: SpektralErrorReport[] = [];
 	let errorClearReadyAtMs = 0;
-	let lastFrameTimestampMs = performance.now();
+	let errorNeedsSuccessfulRender = false;
 
 	const resolveNowMs = (nowMs?: number): number => {
 		if (typeof nowMs === 'number' && Number.isFinite(nowMs)) {
 			return nowMs;
 		}
 
-		return lastFrameTimestampMs;
+		return performance.now();
 	};
 
 	const getHistoryLimit = (): number => {
@@ -218,7 +222,22 @@ export function createSpektralRuntimeLoop(
 		publishErrorHistory();
 	};
 
-	const setError = (error: unknown, phase: SpektralErrorPhase, nowMs?: number): void => {
+	const cancelErrorClear = (): void => {
+		if (errorClearTimerId !== null) {
+			clearTimeout(errorClearTimerId);
+			errorClearTimerId = null;
+		}
+	};
+
+	const setError = (
+		error: unknown,
+		phase: SpektralErrorPhase,
+		nowMs?: number,
+		requiresRender = phase === 'render'
+	): void => {
+		if (isDisposed) return;
+		cancelErrorClear();
+		errorNeedsSuccessfulRender = requiresRender;
 		const report = toSpektralErrorReport(error, phase);
 		errorClearReadyAtMs = resolveNowMs(nowMs) + ERROR_CLEAR_GRACE_MS;
 		const reportKey = JSON.stringify({
@@ -263,13 +282,22 @@ export function createSpektralRuntimeLoop(
 	};
 
 	const maybeClearError = (nowMs?: number): void => {
-		if (activeErrorKey === null) {
+		if (isDisposed || activeErrorKey === null) {
 			return;
 		}
-		if (resolveNowMs(nowMs) < errorClearReadyAtMs) {
+		const remainingMs = errorClearReadyAtMs - resolveNowMs(nowMs);
+		if (remainingMs > 0) {
+			// Successful recovery must also expire while manual/on-demand rendering is idle.
+			if (errorClearTimerId === null) {
+				errorClearTimerId = setTimeout(() => {
+					errorClearTimerId = null;
+					maybeClearError();
+				}, remainingMs);
+			}
 			return;
 		}
 
+		cancelErrorClear();
 		activeErrorKey = null;
 		errorClearReadyAtMs = 0;
 		options.reportError(null);
@@ -381,6 +409,11 @@ export function createSpektralRuntimeLoop(
 		const nextUniformKeys: string[] = [];
 		const nextUniformTypes = new Map<string, UniformType>();
 		for (const entry of layoutEntries) {
+			// Overrides were validated against the previous layout. Discard them
+			// when their type changes before they reach the unchecked GPU packer.
+			if (uniformTypes.get(entry.name) !== entry.type) {
+				delete runtimeUniforms[entry.name];
+			}
 			nextUniformKeys.push(entry.name);
 			nextUniformTypes.set(entry.name, entry.type);
 		}
@@ -518,7 +551,6 @@ export function createSpektralRuntimeLoop(
 		if (isDisposed) {
 			return;
 		}
-		lastFrameTimestampMs = timestamp;
 		syncErrorHistory();
 
 		let materialState: ResolvedMaterial;
@@ -599,6 +631,10 @@ export function createSpektralRuntimeLoop(
 
 						renderer?.destroy();
 						renderer = nextRenderer;
+						if (needsDeviceRecoveryFrame) {
+							registry.advance();
+							needsDeviceRecoveryFrame = false;
+						}
 						activeRendererSignature = rendererSignature;
 						failedRendererSignature = null;
 						failedRendererAttempts = 0;
@@ -646,8 +682,10 @@ export function createSpektralRuntimeLoop(
 			currentCssWidth = width;
 			currentCssHeight = height;
 			size.set({ width, height });
+			registry.invalidate();
 		}
 
+		let tasksCompleted = false;
 		try {
 			registry.run({
 				time,
@@ -662,11 +700,13 @@ export function createSpektralRuntimeLoop(
 				autoRender: registry.getAutoRender(),
 				canvas: canvasElement
 			});
+			tasksCompleted = true;
 
 			const shouldRenderFrame = registry.shouldRender();
 			shouldContinueAfterFrame =
 				registry.getRenderMode() === 'always' ||
-				(registry.getRenderMode() === 'on-demand' && shouldRenderFrame);
+				(registry.getRenderMode() === 'on-demand' &&
+					(shouldRenderFrame || frameScheduling?.hasWork() === true));
 
 			if (shouldRenderFrame) {
 				for (const key of uniformKeys) {
@@ -705,11 +745,13 @@ export function createSpektralRuntimeLoop(
 					pendingStorageWrites.length = 0;
 				}
 			}
-
-			maybeClearError(timestamp);
+			if (shouldRenderFrame || !errorNeedsSuccessfulRender) maybeClearError(timestamp);
 		} catch (error) {
-			setError(error, 'render', timestamp);
+			setError(error, 'render', timestamp, tasksCompleted);
+			// Task failures occur before the normal continuation decision.
+			shouldContinueAfterFrame ||= registry.getRenderMode() === 'always';
 			if (renderer && shouldRecreateRendererAfterError(error)) {
+				needsDeviceRecoveryFrame = true;
 				renderer.destroy();
 				renderer = null;
 				activeRendererSignature = '';
@@ -727,6 +769,10 @@ export function createSpektralRuntimeLoop(
 			scheduleFrame();
 		}
 	};
+
+	const unsubscribeScheduling = frameScheduling?.subscribe(() => {
+		if (registry.getRenderMode() !== 'manual') scheduleFrame();
+	});
 
 	void (async () => {
 		try {
@@ -749,6 +795,7 @@ export function createSpektralRuntimeLoop(
 		advance,
 		destroy: () => {
 			isDisposed = true;
+			unsubscribeScheduling?.();
 			resizeObserver?.disconnect();
 			resizeObserver = null;
 			if (frameId !== null) {
@@ -756,6 +803,7 @@ export function createSpektralRuntimeLoop(
 				frameId = null;
 			}
 			clearRetryTimer();
+			cancelErrorClear();
 			pendingStorageWrites.length = 0;
 			renderer?.destroy();
 			registry.clear();

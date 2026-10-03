@@ -113,8 +113,11 @@ export class CopyPass implements RenderPass {
 			context.clear === false &&
 			context.preserve === true &&
 			source.texture !== target.texture &&
-			source.texture !== context.canvas.texture &&
-			target.texture !== context.canvas.texture &&
+			this.input !== 'canvas' &&
+			this.output !== 'canvas' &&
+			// Inspect the resolved textures without allocating the lazy canvas surface.
+			(source.texture.usage & GPUTextureUsage.COPY_SRC) !== 0 &&
+			(target.texture.usage & GPUTextureUsage.COPY_DST) !== 0 &&
 			source.width === target.width &&
 			source.height === target.height &&
 			source.format === target.format;

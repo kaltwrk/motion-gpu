@@ -1,8 +1,8 @@
+import { readPreference, writePreference } from './preferences';
 import { browser } from '$app/environment';
-import { contentUiDefaults } from '$lib/config/content-ui';
+import { contentUiDefaults } from '$lib/site/content-ui';
 
-export const themes = ['light', 'dark'] as const;
-export type Theme = (typeof themes)[number];
+type Theme = 'light' | 'dark';
 
 const storageKey = contentUiDefaults.theme.storageKey;
 
@@ -25,7 +25,7 @@ function getInitialTheme(): Theme {
 		return contentUiDefaults.theme.defaultMode === 'dark' ? 'dark' : 'light';
 	}
 
-	const storedTheme = localStorage.getItem(storageKey);
+	const storedTheme = readPreference(storageKey);
 	if (isTheme(storedTheme)) {
 		return storedTheme;
 	}
@@ -42,8 +42,8 @@ function createThemeStore() {
 
 		const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 		const handlePreferredThemeChange = () => {
-			const savedTheme = localStorage.getItem(storageKey);
-			if (isTheme(savedTheme)) {
+			const savedTheme = readPreference(storageKey);
+			if (isTheme(savedTheme) || contentUiDefaults.theme.defaultMode !== 'system') {
 				return;
 			}
 
@@ -60,7 +60,7 @@ function createThemeStore() {
 	const set = (theme: Theme) => {
 		current = theme;
 		if (browser) {
-			localStorage.setItem(storageKey, theme);
+			writePreference(storageKey, theme);
 		}
 		applyTheme(theme);
 	};

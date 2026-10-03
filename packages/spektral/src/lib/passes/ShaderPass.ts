@@ -59,7 +59,9 @@ fn spektralShaderPassVertex(@builtin(vertex_index) index: u32) -> SpektralVertex
 @fragment
 fn spektralShaderPassFragment(in: SpektralVertexOut) -> @location(0) vec4f {
 	spektralFragment.uv = in.uv;
-	let inputColor = textureSample(spektralShaderPassTexture, spektralShaderPassSampler, in.uv);
+	// Preserve shader UVs while sampling the same pixel in texture coordinates.
+	let textureUv = vec2f(in.uv.x, 1.0 - in.uv.y);
+	let inputColor = textureSample(spektralShaderPassTexture, spektralShaderPassSampler, textureUv);
 	return shade(inputColor, in.uv);
 }
 `;

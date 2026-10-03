@@ -1,14 +1,16 @@
+import { readPreference, writePreference } from './preferences';
 import { browser } from '$app/environment';
+import { contentUiDefaults } from '$lib/site/content-ui';
 
 export type Framework = 'svelte' | 'react' | 'vue';
 
-export const frameworks: Framework[] = ['svelte', 'react', 'vue'];
+export const frameworks: Framework[] = contentUiDefaults.framework.enabled;
 
-const STORAGE_KEY = 'spektralFramework';
-const DATASET_KEY = 'spektralFramework';
+const STORAGE_KEY = contentUiDefaults.framework.storageKey;
+const DATASET_KEY = 'docsFramework';
 
 function isFramework(value: string | null): value is Framework {
-	return value === 'svelte' || value === 'react' || value === 'vue';
+	return frameworks.includes(value as Framework);
 }
 
 function getBootstrapFramework(): Framework | null {
@@ -26,18 +28,19 @@ function syncBootstrapFramework(value: Framework): void {
 	}
 
 	document.documentElement.dataset[DATASET_KEY] = value;
+	document.documentElement.dataset.docsFramework = value;
 }
 
 function createFrameworkStore() {
-	let active = $state<Framework>('svelte');
+	let active = $state<Framework>(contentUiDefaults.framework.default);
 
 	if (browser) {
-		let nextActive: Framework = 'svelte';
+		let nextActive: Framework = contentUiDefaults.framework.default;
 		const bootstrapped = getBootstrapFramework();
 		if (bootstrapped) {
 			nextActive = bootstrapped;
 		} else {
-			const stored = localStorage.getItem(STORAGE_KEY);
+			const stored = readPreference(STORAGE_KEY);
 			if (isFramework(stored)) {
 				nextActive = stored;
 			}
@@ -54,7 +57,7 @@ function createFrameworkStore() {
 		set active(v: Framework) {
 			active = v;
 			if (browser) {
-				localStorage.setItem(STORAGE_KEY, v);
+				writePreference(STORAGE_KEY, v);
 				syncBootstrapFramework(v);
 			}
 		}

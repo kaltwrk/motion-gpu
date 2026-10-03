@@ -3,7 +3,7 @@
  */
 
 import type { MaterialLineMap } from './material-contracts.js';
-import { managedPassBrand } from './pass-brand.js';
+import { managedPassBrand, selectFeedbackOwner, type FeedbackOwnerState } from './pass-brand.js';
 
 /**
  * WGSL-compatible uniform primitive and aggregate types supported by Spektral.
@@ -190,7 +190,7 @@ export interface TextureDefinition {
 	 */
 	readonly source?: TextureValue;
 	/**
-	 * Source color space used for format/decode decisions.
+	 * Source color space used for format/decode decisions when `format` is omitted.
 	 */
 	readonly colorSpace?: 'srgb' | 'linear';
 	/**
@@ -231,6 +231,7 @@ export interface TextureDefinition {
 	readonly storage?: boolean;
 	/**
 	 * Required when storage is true. Must be a storage-compatible format.
+	 * For sampled textures, an explicit format takes precedence over source `colorSpace`.
 	 */
 	readonly format?: GPUTextureFormat;
 	/**
@@ -809,6 +810,7 @@ export interface ComputePassLike {
  */
 export interface PingPongShaderPassLike {
 	readonly [managedPassBrand]: 'feedback';
+	[selectFeedbackOwner]: (owner: object) => FeedbackOwnerState;
 	readonly isPingPongShader: true;
 	readonly label?: string;
 	enabled: boolean;

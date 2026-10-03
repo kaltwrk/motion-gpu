@@ -1,0 +1,41 @@
+---
+title: Advanced API
+description: Scheduler helpers and namespaced user context exports.
+order: 50
+sidebar:
+  label: "Advanced API"
+---
+
+## Entrypoints
+
+| Entrypoint | Additional exports |
+| --- | --- |
+| `spektral/advanced` | Framework-neutral core plus scheduler helpers |
+| `/svelte/advanced`, `/vue/advanced` | Adapter runtime, scheduler helpers, user-context read/write API |
+| `/react/advanced` | Same, plus `useSetSpektralUserContext` |
+
+## Scheduler helpers
+
+```ts
+applySchedulerPreset(
+	scheduler,
+	preset: 'performance' | 'balanced' | 'debug',
+	overrides?
+): SchedulerPresetConfig
+```
+
+| Preset | Diagnostics/profiling | Window |
+| --- | --- | --- |
+| `performance` | Off | 60 |
+| `balanced` | On | 120 |
+| `debug` | On | 240 |
+
+Overrides may set `diagnosticsEnabled`, `profilingEnabled`, and `profilingWindow`. The window must be a safe integer from 1 through 10,000. Diagnostics and profiling currently share state, so both boolean overrides must match.
+
+`captureSchedulerDebugSnapshot(scheduler)` returns enable flags, window, resolved schedule, last-run timings, and rolling profiling snapshot.
+
+## User context
+
+Advanced adapter entrypoints export `useSpektralUserContext`, `setSpektralUserContext`, their types, and scheduler helpers. React adds `useSetSpektralUserContext` for hook-bound writes.
+
+See [User Context](/docs/user-context) and [Hooks API](/docs/api-hooks-reference#advanced-user-context).

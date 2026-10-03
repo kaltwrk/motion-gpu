@@ -66,7 +66,7 @@ const buildInitialStyle = (theme: PreviewTheme): string => {
 
 html,
 body {
-	background: ${tokens.background};
+	background: transparent;
 	color: ${tokens.foreground};
 }`;
 };

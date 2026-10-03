@@ -5,7 +5,7 @@ import {
 	getContentSectionRawSource,
 	getContentSectionManifest
 } from '$lib/content/sections';
-import { contentSections } from '$lib/config/navigation';
+import { contentSections } from '$lib/content/sections';
 
 const normalize = (value: string) => value.replace(/^\/+|\/+$/g, '');
 
@@ -34,10 +34,7 @@ export const GET: RequestHandler = ({ params }) => {
 	}
 
 	const slugParam = normalize(params.slug);
-	const targetSlug =
-		slugParam === '' || slugParam === 'index' || slugParam === normalize(`/${section.id}`)
-			? ''
-			: slugParam;
+	const targetSlug = slugParam === '' || slugParam === 'index' ? '' : slugParam;
 
 	const content = getContentSectionRawSource(section.id, targetSlug);
 

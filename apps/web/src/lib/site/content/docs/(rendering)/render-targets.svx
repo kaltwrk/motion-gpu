@@ -1,0 +1,49 @@
+---
+title: Render targets
+description: Declare named off-screen surfaces for post-processing passes.
+order: 20
+sidebar:
+  label: "Render Targets"
+---
+
+Named render targets provide explicit intermediate surfaces in the post-scene render graph. They are distinct from storage textures and the private A/B textures owned by `PingPongShaderPass`.
+
+## Declare targets
+
+```svelte
+<FragCanvas
+	{material}
+	renderTargets={{
+		half: { scale: 0.5 },
+		fixed: { width: 512, height: 512, format: 'rgba16float' }
+	}}
+	{passes}
+/>
+```
+
+Use each key as a pass `input` or `output`. Named targets must be written before they are read in the current frame, and named routing requires `needsSwap: false`.
+
+## Definition
+
+| Field | Default | Resolution |
+| --- | --- | --- |
+| `width` | — | Explicit width, floored to an integer |
+| `height` | — | Explicit height, floored to an integer |
+| `scale` | `1` | Applied independently to omitted dimensions |
+| `format` | Current working format | GPU texture format |
+
+Every supplied dimension and scale must be finite and greater than zero. Resolved dimensions have a minimum of one pixel. Keys follow the same WGSL-safe identifier rule as other named resources.
+
+If only one explicit dimension is supplied, the other still follows the canvas and `scale`. For a 1920×1080 canvas, `{ width: 512 }` resolves to 512×1080 with the default scale.
+
+## Format and lifecycle
+
+In the standard SDR path, the default target format follows the preferred canvas format. HDR, tone-mapped, or explicitly configured working pipelines can use `rgba16float`. A target-level `format` always wins.
+
+Spektral validates the working format and named targets against the active device before allocation or pipeline creation. Built-in passes require float-sampled inputs and float-renderable outputs because their shaders use `texture_2d<f32>` and `vec4f`. Integer and depth targets remain available to a custom `RenderPass` with a matching typed pipeline, but routing one through a built-in pass produces an early Spektral diagnostic. Float32 working formats use non-filtering sampling and nearest presentation unless the device exposes `float32-filterable`.
+
+The renderer compares resolved targets by `key:format:widthxheight`. It allocates new targets, reallocates changed targets, destroys removed targets, and preserves textures whose signature remains stable.
+
+Custom render passes receive the resolved map as `context.targets`. Built-in passes access named targets through normal slot routing.
+
+For persistent fragment feedback, declare a sampled material texture and use `PingPongShaderPass`. For compute writes, declare a storage texture. See [Render Passes](/docs/render-passes) and [Textures](/docs/textures).

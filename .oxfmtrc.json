@@ -6,7 +6,7 @@
 	"printWidth": 100,
 	"sortPackageJson": false,
 	"sortTailwindcss": {
-		"stylesheet": "./apps/web/src/routes/layout.css"
+		"stylesheet": "./apps/web/src/lib/site/theme.css"
 	},
 	"svelte": {},
 	"ignorePatterns": [
@@ -21,6 +21,23 @@
 		"packages/spektral/benchmarks/results/",
 		"packages/spektral/coverage/",
 		"packages/spektral/test-results/",
-		"apps/web/test-results/"
+		"apps/web/test-results/",
+		"apps/web/src/lib/components/ui/*/**",
+		"apps/web/src/lib/hooks/**",
+		"apps/web/src/lib/icons/**",
+		"apps/web/src/lib/features/docs/markdown/**",
+		"apps/web/src/lib/features/docs/framework/**",
+		"apps/web/src/lib/components/action-tooltip/**",
+		"apps/web/src/lib/components/code-block/**",
+		"apps/web/src/lib/components/copy-feedback/**",
+		"apps/web/src/lib/components/icon-transition/**",
+		"apps/web/src/lib/components/layout/**",
+		"apps/web/src/lib/features/docs/MarkdownLayout.svelte",
+		"apps/web/src/lib/features/docs/DocsActions.svelte",
+		"apps/web/src/lib/features/docs/actions.ts",
+		"apps/web/src/lib/features/docs/docs-search.ts",
+		"apps/web/src/lib/features/docs/DocsPageHeader.svelte",
+		"apps/web/src/lib/features/docs/DocsHeadingAnchor.svelte",
+		"apps/web/src/lib/site/keyboard-shortcuts.ts"
 	]
 }

@@ -5,6 +5,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Performance
+
+- Removed an unused full-size presentation texture from the direct `CopyPass` path. Copy eligibility now checks the resolved texture usages without reading the lazy canvas surface, reducing ordinary copy chains from three intermediate textures to two.
+
+- Removed the unused presentation texture from ordinary postprocessing chains. The canvas intermediate is now allocated on demand, and unused intermediate textures are released after submission when the graph changes.
+
+### Fixed
+
+- Fixed fullscreen blits and shader-pass input sampling flipping images vertically. `CopyPass` now preserves orientation when falling back to a blit; shader UV coordinates retain their existing convention.
+
+- Fixed uniform and texture names such as `toString` and `constructor` reading inherited JavaScript methods as runtime overrides. Defaults and explicit overrides now use prototype-free maps.
+
+- Fixed anisotropic texture sampling creating an invalid WebGPU sampler when mipmap generation is disabled. Effective anisotropy now selects the required linear mip filter without allocating extra mip levels.
+
+- Fixed idle on-demand and manual canvases staying blank after device loss. A successfully rebuilt renderer now renders one recovery frame, including after initialization retries.
+
+- Fixed a failed texture update leaving later frames bound to a destroyed texture. Source binding invalidation now survives partial updates until the bind group is rebuilt.
+
+- Fixed fragment-feedback pipeline caches retaining every shader edit until renderer disposal. Unused variants now follow a bounded LRU policy while active feedback pipelines remain cached.
+
+- Fixed compute pipeline cache thrashing when a graph uses more than 32 distinct pipelines. Active pass pipelines are now retained while inactive history stays bounded; late validation from an evicted pipeline cannot overwrite its replacement.
+
+- Fixed cached compute resource plans bypassing frame-wide external identity and metadata validation. Cache hits now replay validated registrations without rebuilding descriptors or calling providers more than once per frame.
+
+- Fixed unfilterable fragment-feedback outputs reaching incompatible material bind groups. The renderer now reports the required material texture format before binding, preserves compatible float32 layouts, and publishes the actual feedback format and dimensions.
+
+- Fixed aborted GPU frames advancing feedback parity, consuming resets, and publishing unwritten results. Frame encoding now rolls back CPU resource state on failure and releases replaced uploads only after submission; mipmap work also remains pending until submitted.
+
+- Fixed React runtime getters, frame callbacks, and texture reloads observing values from suspended or abandoned renders. Updates now become visible only after React commits them.
+
+- Fixed a transient frame-task error permanently stopping `always` rendering. The loop now schedules the next frame after reporting the error.
+
+- Fixed fragment feedback passes reading the canvas resolution instead of their own texture dimensions when commands share a submission.
+- Fixed default SDR postprocessing applying sRGB encoding before filters. Intermediate colors now stay linear and output encoding runs once during final presentation, including when passes are toggled.
+- Fixed on-demand scheduling stopping active frame tasks when no GPU frame was needed. Starting or registering tasks now wakes the loop, dynamic predicates and invalidation tokens keep updating, and the loop sleeps once its work stops.
+- Fixed on-demand canvases keeping stale content after a CSS resize. Changed dimensions invalidate the frame; repeated size notifications do not render again, and manual mode still waits for `advance()`.
+- Fixed explicit `null` texture values restoring the material's default source instead of clearing the texture. Clearing now releases the upload and binds the fallback; an omitted value still selects the default source.
+- Fixed runtime texture `colorSpace` overrides being ignored by automatic format selection. Changes now reallocate the texture with the correct decode format, while explicit formats retain precedence and have distinct material cache signatures.
+- Fixed stale runtime uniform overrides surviving material changes to a different uniform type. Incompatible overrides now reset to the new material default before packing, while overrides for unchanged types remain intact.
+- Fixed removing a `PingPongComputePass` leaving consumers bound to destroyed textures. Removal now restores the material allocation for scene and compute readers without replacing another pass's published result.
+- Fixed ordinary compute writes remaining invisible after a ping-pong writer was disabled. The written allocation is now published to downstream compute and the scene, while initial-version readers retain the frame's previous value.
+- Fixed shared `PingPongShaderPass` instances mixing iteration parity and reset state across canvases. Each texture pair now tracks its own state through resets, resizing, and renderer disposal.
+- Fixed `premultipliedAlpha` texture uploads being ignored. The option now reaches WebGPU's destination descriptor for initial sources and runtime uploads, with vertical flipping kept on the source descriptor.
+- Fixed recovered errors remaining visible while on-demand or manual rendering is idle. Successful task or renderer recovery now schedules diagnostic expiry without extra GPU frames; recurring errors cancel it, asynchronous errors use their arrival time, and disposal cancels pending callbacks.
+
 ## [0.17.1] - 2026-09-27
 
 ### Changed

@@ -143,17 +143,6 @@ export function resizeCanvas(
 	return { width, height };
 }
 
-function createExternalCopySource(
-	source: CanvasImageSource,
-	options: { flipY?: boolean; premultipliedAlpha?: boolean }
-): GPUCopyExternalImageSourceInfo {
-	return {
-		source,
-		...(options.flipY ? { flipY: true } : {}),
-		...(options.premultipliedAlpha ? { premultipliedAlpha: true } : {})
-	} as GPUCopyExternalImageSourceInfo;
-}
-
 export function uploadTextureBaseLevel(
 	device: GPUDevice,
 	texture: GPUTexture,
@@ -163,8 +152,8 @@ export function uploadTextureBaseLevel(
 	height: number
 ): void {
 	device.queue.copyExternalImageToTexture(
-		createExternalCopySource(source, uploadOptions),
-		{ texture, mipLevel: 0 },
+		{ source, flipY: uploadOptions.flipY },
+		{ texture, mipLevel: 0, premultipliedAlpha: uploadOptions.premultipliedAlpha },
 		{ width, height, depthOrArrayLayers: 1 }
 	);
 }

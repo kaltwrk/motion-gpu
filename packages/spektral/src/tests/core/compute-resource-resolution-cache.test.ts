@@ -277,3 +277,111 @@ describe('ComputePassResourceResolutionCache', () => {
 		expect(cache.getStats()).toMatchObject({ planBuilds: 3, passEvictions: 1 });
 	});
 });
+
+it.each(['object-id', 'id-object', 'metadata'] as const)(
+	'checks external %s conflicts across cold and cached passes',
+	(conflict) => {
+		const shared = buffer('shared');
+		const make = (second: boolean) =>
+			new ComputePass({
+				compute: COMPUTE,
+				resources: {
+					data: {
+						buffer: {
+							externalBuffer: second && conflict === 'id-object' ? buffer('other') : shared,
+							resourceId: second && conflict === 'object-id' ? 'other' : 'data',
+							wgslType: second && conflict === 'metadata' ? 'array<u32>' : 'array<f32>',
+							size: 256,
+							usage: 128
+						},
+						access: 'storage-read'
+					}
+				}
+			});
+		const first = make(false);
+		const second = make(true);
+		for (const warmed of [[], [first], [second], [first, second]]) {
+			for (const order of [
+				[first, second],
+				[second, first]
+			]) {
+				const cache = createComputePassResourceResolutionCache();
+				const resolve = (pass: ComputePass) =>
+					cache.resolve({ pass, context: context(), pingPong: false });
+				for (const pass of warmed) {
+					cache.beginFrame();
+					resolve(pass);
+				}
+				cache.beginFrame();
+				resolve(order[0]!);
+				expect(() => resolve(order[1]!)).toThrow(
+					/external.*identity|same object|declares metadata/
+				);
+			}
+		}
+	}
+);
+
+it.each(['texture', 'view', 'sampler'] as const)(
+	'replays cached %s registrations without resolving providers twice',
+	(kind) => {
+		const gpu = kind === 'texture' ? texture('shared') : {};
+		const provider = vi.fn(() => gpu as GPUTexture & GPUTextureView & GPUSampler);
+		const descriptor = (resourceId: string) =>
+			kind === 'sampler'
+				? { sampler: { externalSampler: provider, resourceId, type: 'non-filtering' as const } }
+				: {
+						texture: {
+							...(kind === 'texture'
+								? { externalTexture: provider as () => GPUTexture }
+								: { externalView: provider, mipLevelCount: 1, viewDimension: '2d' as const }),
+							resourceId,
+							format: 'rgba8unorm' as const,
+							usage: 12
+						},
+						access: 'sampled' as const
+					};
+		const first = new ComputePass({ compute: COMPUTE, resources: { input: descriptor('a') } });
+		const second = new ComputePass({ compute: COMPUTE, resources: { input: descriptor('b') } });
+		const cache = createComputePassResourceResolutionCache();
+		const resolve = (pass: ComputePass) =>
+			cache.resolve({ pass, context: context(), pingPong: false });
+		cache.beginFrame();
+		resolve(first);
+		cache.beginFrame();
+		resolve(second);
+		provider.mockClear();
+		cache.beginFrame();
+		resolve(first);
+		expect(() => resolve(second)).toThrow(/same object/);
+		expect(provider).toHaveBeenCalledTimes(1);
+	}
+);
+
+it('keeps separate external views of the same logical texture valid when cached', () => {
+	const make = (view: GPUTextureView) =>
+		new ComputePass({
+			compute: COMPUTE,
+			resources: {
+				input: {
+					texture: {
+						externalView: view,
+						resourceId: 'image',
+						format: 'rgba8unorm',
+						usage: 4,
+						viewDimension: '2d',
+						mipLevelCount: 1
+					},
+					access: 'sampled'
+				}
+			}
+		});
+	const passes = [make(textureView('a')), make(textureView('b'))];
+	const cache = createComputePassResourceResolutionCache();
+	for (let frame = 0; frame < 3; frame += 1) {
+		cache.beginFrame();
+		for (const pass of passes)
+			expect(() => cache.resolve({ pass, context: context(), pingPong: false })).not.toThrow();
+	}
+	expect(cache.getStats().steadyStateHits).toBe(4);
+});

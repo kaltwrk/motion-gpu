@@ -3,13 +3,14 @@ import { getShaderCompilationDiagnostics } from '../../lib/core/error-diagnostic
 import { toSpektralErrorReport } from '../../lib/core/error-report';
 import { defineMaterial } from '../../lib/core/material';
 import { createRenderer } from '../../lib/core/renderer';
-import { BlitPass } from '../../lib/passes';
+import { BlitPass, CopyPass } from '../../lib/passes';
 import { resolveUniformLayout } from '../../lib/core/uniforms';
 import { createSpektralGraphBridge } from '../../lib/core/render-graph-reader';
-import type { RenderPass, RenderTargetDefinitionMap } from '../../lib/core/types';
+import type { AnyPass, RenderPass, RenderTargetDefinitionMap } from '../../lib/core/types';
 
 type MockTexture = {
 	descriptor: GPUTextureDescriptor;
+	usage: GPUTextureUsageFlags;
 	destroy: ReturnType<typeof vi.fn>;
 	createView: ReturnType<typeof vi.fn>;
 };
@@ -75,6 +76,7 @@ interface MockWebGpuRuntime {
 function createMockTexture(descriptor: GPUTextureDescriptor): MockTexture {
 	const texture: MockTexture = {
 		descriptor,
+		usage: descriptor.usage,
 		destroy: vi.fn(),
 		createView: vi.fn(
 			(viewDescriptor?: GPUTextureViewDescriptor) =>
@@ -1374,6 +1376,55 @@ describe('createRenderer', () => {
 		renderer.destroy();
 	});
 
+	it.each(['replace', 'clear'] as const)(
+		'rebuilds bindings after a partial texture update fails (%s)',
+		async (change) => {
+			const runtime = createWebGpuRuntime();
+			const source = document.createElement('canvas');
+			source.width = source.height = 4;
+			const replacement = document.createElement('canvas');
+			replacement.width = replacement.height = 8;
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['a', 'b'],
+				textureDefinitions: { a: { source }, b: {} }
+			});
+			const frame = { time: 0, delta: 0.016, renderMode: 'always' as const, uniforms: {} };
+			try {
+				renderer.render({ ...frame, textures: {} });
+				const oldTexture = runtime.textures.find(
+					(texture) => (texture.descriptor.size as GPUExtent3DDict).width === 4
+				)!;
+				const oldView = oldTexture.createView.mock.results[0]!.value as GPUTextureView;
+				const nextSource = change === 'replace' ? replacement : null;
+				expect(() =>
+					renderer.render({
+						...frame,
+						textures: { a: nextSource, b: { source, width: 0 } }
+					})
+				).toThrow(/positive integer/);
+				expect(oldTexture.destroy).toHaveBeenCalledOnce();
+				const submissionsBeforeRecovery = runtime.device.queue.submit.mock.calls.length;
+				renderer.render({ ...frame, textures: { a: nextSource, b: null } });
+				const boundGroup = runtime.renderPasses.at(-1)!.setBindGroup.mock.calls[0]![1];
+				const groupIndex = runtime.device.createBindGroup.mock.results.findIndex(
+					(result) => result.value === boundGroup
+				);
+				const descriptor = runtime.device.createBindGroup.mock.calls[
+					groupIndex
+				]![0] as GPUBindGroupDescriptor;
+				const view = Array.from(descriptor.entries).find((entry) => entry.binding === 3)!.resource;
+				expect(view).not.toBe(oldView);
+				expect(runtime.device.queue.submit).toHaveBeenCalledTimes(submissionsBeforeRecovery + 1);
+				const bindGroupsAfterRecovery = runtime.device.createBindGroup.mock.calls.length;
+				renderer.render({ ...frame, textures: { a: nextSource, b: null } });
+				expect(runtime.device.createBindGroup).toHaveBeenCalledTimes(bindGroupsAfterRecovery);
+			} finally {
+				renderer.destroy();
+			}
+		}
+	);
+
 	it('keeps existing runtime texture usable when same-sized upload fails', async () => {
 		const runtime = createWebGpuRuntime();
 		const sourceA = document.createElement('canvas');
@@ -1548,6 +1599,39 @@ describe('createRenderer', () => {
 		).toBe(initialTextureView);
 	});
 
+	it('clears an explicit null even when the material supplies a default source', async () => {
+		const runtime = createWebGpuRuntime();
+		const source = document.createElement('canvas');
+		source.width = source.height = 6;
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['uTex'],
+			textureDefinitions: { uTex: { source } }
+		});
+		const uploaded = runtime.textures.find(
+			(texture) => (texture.descriptor.size as { width: number }).width === 6
+		);
+		expect(uploaded).toBeDefined();
+		const clear = () =>
+			renderer.render({
+				time: 0,
+				delta: 0.016,
+				renderMode: 'always',
+				uniforms: {},
+				textures: { uTex: null }
+			});
+		clear();
+		expect(uploaded?.destroy).toHaveBeenCalledTimes(1);
+		const groups = runtime.device.createBindGroup.mock.calls.length;
+		clear();
+		expect(runtime.device.createBindGroup).toHaveBeenCalledTimes(groups);
+		expect(runtime.device.queue.copyExternalImageToTexture).toHaveBeenCalledTimes(1);
+		renderer.render({ time: 0, delta: 0.016, renderMode: 'always', uniforms: {}, textures: {} });
+		expect(runtime.device.queue.copyExternalImageToTexture).toHaveBeenCalledTimes(2);
+		renderer.destroy();
+		expect(uploaded?.destroy).toHaveBeenCalledTimes(1);
+	});
+
 	it('generates texture mipmaps with GPU render passes after the base upload', async () => {
 		const runtime = createWebGpuRuntime();
 		const source = document.createElement('canvas');
@@ -1720,6 +1804,113 @@ describe('createRenderer', () => {
 			| undefined;
 		const attachment = Array.from(descriptor?.colorAttachments ?? [])[0];
 		expect(attachment?.clearValue).toEqual({ r: 0.25, g: 0, b: 0, a: 0.25 });
+	});
+
+	it.each([false, true])(
+		'allocates two postprocessing surfaces and releases unused surfaces (HDR=%s)',
+		async (hdr) => {
+			const runtime = createWebGpuRuntime();
+			const { ShaderPass } = await import('../../lib/passes/ShaderPass');
+			const pass = new ShaderPass({
+				fragment: 'fn shade(inputColor: vec4f, uv: vec2f) -> vec4f { return inputColor; }'
+			});
+			let passes: AnyPass[] = [pass];
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				getPasses: () => passes,
+				...(hdr ? { color: { toneMapping: 'aces-hill' as const } } : {})
+			});
+			const allocated = () =>
+				runtime.textures.filter((texture) => {
+					const size = texture.descriptor.size as GPUExtent3DDict;
+					return (
+						size.width === 10 &&
+						((texture.descriptor.usage as number) & GPUTextureUsage.TEXTURE_BINDING) !== 0
+					);
+				});
+			renderFrame(renderer);
+			const surfaces = allocated();
+			expect(surfaces).toHaveLength(2);
+			renderFrame(renderer);
+			expect(allocated()).toHaveLength(2);
+			passes = [];
+			renderFrame(renderer);
+			for (const surface of surfaces) expect(surface.destroy).toHaveBeenCalledTimes(1);
+			expect(allocated().filter((surface) => surface.destroy.mock.calls.length === 0)).toHaveLength(
+				hdr ? 1 : 0
+			);
+			renderer.destroy();
+			for (const surface of allocated()) expect(surface.destroy).toHaveBeenCalledTimes(1);
+		}
+	);
+
+	it.each(['rgba8unorm', 'rgba16float'] as const)(
+		'keeps only two CopyPass surfaces through reuse and resizing (%s)',
+		async (workingFormat) => {
+			const runtime = createWebGpuRuntime();
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				passes: [new CopyPass()],
+				color: { workingFormat }
+			});
+			const surfaces = () =>
+				runtime.textures.filter(
+					(texture) =>
+						(texture.usage & GPUTextureUsage.TEXTURE_BINDING) !== 0 &&
+						(texture.descriptor.size as GPUExtent3DDict).width > 1
+				);
+			try {
+				for (const width of [3840, 3840, 1920]) {
+					renderer.render({
+						time: 0,
+						delta: 0.016,
+						renderMode: 'manual',
+						uniforms: {},
+						textures: {},
+						canvasSize: { width, height: (width * 9) / 16 }
+					});
+					const active = surfaces().filter((texture) => texture.destroy.mock.calls.length === 0);
+					expect(active).toHaveLength(2);
+					for (const texture of active) {
+						expect(texture.descriptor).toMatchObject({
+							format: workingFormat,
+							size: { width, height: (width * 9) / 16 }
+						});
+					}
+					expect(runtime.commandEncoders.at(-1)!.copyTextureToTexture).toHaveBeenCalledOnce();
+				}
+				expect(surfaces()).toHaveLength(4);
+			} finally {
+				renderer.destroy();
+			}
+			for (const texture of surfaces()) expect(texture.destroy).toHaveBeenCalledOnce();
+		}
+	);
+
+	it('allocates the custom pass canvas surface only when accessed and releases it when unused', async () => {
+		const runtime = createWebGpuRuntime();
+		let useCanvas = true;
+		let canvasTexture: GPUTexture | undefined;
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			passes: [
+				{
+					needsSwap: false,
+					render(context) {
+						if (useCanvas) canvasTexture = context.canvas.texture;
+					}
+				}
+			]
+		});
+		renderFrame(renderer);
+		const allocated = runtime.textures.find((texture) => (texture as unknown) === canvasTexture);
+		expect(allocated).toBeDefined();
+		expect(allocated!.destroy).not.toHaveBeenCalled();
+		useCanvas = false;
+		renderFrame(renderer);
+		expect(allocated!.destroy).toHaveBeenCalledTimes(1);
+		renderer.destroy();
+		expect(allocated!.destroy).toHaveBeenCalledTimes(1);
 	});
 
 	it('blits final source slot to canvas when pass graph ends offscreen', async () => {
@@ -1935,7 +2126,7 @@ describe('createRenderer', () => {
 			const shaderCode = getPipelineShaderCode(pipeline);
 			return (
 				shaderCode.includes('fn spektralPresentationFragment') &&
-				shaderCode.includes('return spektralPremultiplyForCanvas(spektralLinear);')
+				shaderCode.includes('return spektralPremultiplyForCanvas(spektralOutput);')
 			);
 		});
 		expect(presentationPipeline).toBeDefined();
@@ -2794,6 +2985,84 @@ describe('createRenderer', () => {
 		expect(textureEntries).toHaveLength(1);
 	});
 
+	it.each([
+		{
+			format: 'rgba8unorm',
+			filter: 'linear',
+			mipmaps: false,
+			anisotropy: 1,
+			expectedMip: 'nearest',
+			expectedFilter: 'linear',
+			expectedAnisotropy: 1
+		},
+		{
+			format: 'rgba8unorm',
+			filter: 'linear',
+			mipmaps: false,
+			anisotropy: 4,
+			expectedMip: 'linear',
+			expectedFilter: 'linear',
+			expectedAnisotropy: 4
+		},
+		{
+			format: 'rgba8unorm',
+			filter: 'linear',
+			mipmaps: true,
+			anisotropy: 4,
+			expectedMip: 'linear',
+			expectedFilter: 'linear',
+			expectedAnisotropy: 4
+		},
+		{
+			format: 'rgba8unorm',
+			filter: 'nearest',
+			mipmaps: false,
+			anisotropy: 4,
+			expectedMip: 'nearest',
+			expectedFilter: 'nearest',
+			expectedAnisotropy: 1
+		},
+		{
+			format: 'r32float',
+			filter: 'linear',
+			mipmaps: false,
+			anisotropy: 4,
+			expectedMip: 'nearest',
+			expectedFilter: 'nearest',
+			expectedAnisotropy: 1
+		}
+	] as const)(
+		'creates a valid anisotropic sampler: $format, $filter, mipmaps=$mipmaps, anisotropy=$anisotropy',
+		async ({
+			format,
+			filter,
+			mipmaps,
+			anisotropy,
+			expectedMip,
+			expectedFilter,
+			expectedAnisotropy
+		}) => {
+			const runtime = createWebGpuRuntime();
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['photo'],
+				textureDefinitions: { photo: { format, filter, generateMipmaps: mipmaps, anisotropy } }
+			});
+			try {
+				expect(runtime.device.createSampler).toHaveBeenCalledWith(
+					expect.objectContaining({
+						magFilter: expectedFilter,
+						minFilter: expectedFilter,
+						mipmapFilter: expectedMip,
+						maxAnisotropy: expectedAnisotropy
+					})
+				);
+			} finally {
+				renderer.destroy();
+			}
+		}
+	);
+
 	it('uses unfilterable fragment texture layout for r32float textures without feature support', async () => {
 		const runtime = createWebGpuRuntime();
 
@@ -3039,6 +3308,61 @@ describe('createRenderer', () => {
 			storageTextureBindGroupsAfterFirst.length
 		);
 
+		renderer.destroy();
+	});
+
+	it.each([32, 33, 40])(
+		'retains all %s active compute pipelines across frames and source edits',
+		async (count) => {
+			const runtime = createWebGpuRuntime();
+			const { ComputePass } = await import('../../lib/passes/ComputePass');
+			const source = (index: number) =>
+				`@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) { let value = ${index}u; }`;
+			const passes = Array.from(
+				{ length: count },
+				(_, index) => new ComputePass({ compute: source(index) })
+			);
+			const renderer = await createRenderer({ ...baseOptions(runtime), passes });
+			renderFrame(renderer);
+			renderFrame(renderer); // validation is still pending
+			expect(runtime.device.createComputePipeline).toHaveBeenCalledTimes(count);
+			for (let index = 0; index < 8; index += 1) await Promise.resolve();
+			renderFrame(renderer);
+			expect(runtime.device.createComputePipeline).toHaveBeenCalledTimes(count);
+			passes[0]!.setCompute(source(count));
+			renderFrame(renderer);
+			renderFrame(renderer);
+			expect(runtime.device.createComputePipeline).toHaveBeenCalledTimes(count + 1);
+			renderer.destroy();
+		}
+	);
+
+	it('ignores validation from an evicted compute pipeline when the same source is rebuilt', async () => {
+		const runtime = createWebGpuRuntime();
+		const { ComputePass } = await import('../../lib/passes/ComputePass');
+		const source = (index: number) =>
+			`@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) { let value = ${index}u; }`;
+		const pass = new ComputePass({ compute: source(0) });
+		const renderer = await createRenderer({ ...baseOptions(runtime), passes: [pass] });
+		let rejectOld!: (error: GPUError | null) => void;
+		runtime.device.popErrorScope.mockImplementationOnce(
+			() =>
+				new Promise<GPUError | null>((resolve) => {
+					rejectOld = resolve;
+				})
+		);
+		renderFrame(renderer);
+		for (let index = 1; index <= 40; index += 1) {
+			pass.setCompute(source(index));
+			renderFrame(renderer);
+		}
+		pass.setCompute(source(0));
+		runtime.device.popErrorScope.mockImplementationOnce(() => new Promise(() => {}));
+		renderFrame(renderer);
+		rejectOld({ message: 'Obsolete validation failure' });
+		for (let index = 0; index < 12; index += 1) await Promise.resolve();
+		expect(() => renderFrame(renderer)).not.toThrow();
+		expect(runtime.device.createComputePipeline).toHaveBeenCalledTimes(42);
 		renderer.destroy();
 	});
 
@@ -3499,6 +3823,138 @@ describe('createRenderer', () => {
 		renderer.destroy();
 	});
 
+	it('publishes a regular compute writer after ping-pong while preserving initial reads and binding caches', async () => {
+		const runtime = createWebGpuRuntime();
+		const { ComputePass, PingPongComputePass } = await import('../../lib/passes');
+		const compute =
+			'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {}';
+		const pingPong = new PingPongComputePass({
+			compute,
+			resources: {
+				previous: { texture: 'sim', access: 'sampled', pingPong: 'read' },
+				next: { texture: 'sim', access: 'storage-write', pingPong: 'write' }
+			}
+		});
+		const writer = new ComputePass({
+			compute,
+			enabled: false,
+			resources: {
+				next: { texture: 'sim', access: 'storage-write' }
+			}
+		});
+		const reader = (version: 'initial' | 'current') =>
+			new ComputePass({
+				compute,
+				resources: {
+					input: { texture: 'sim', access: 'sampled', version }
+				}
+			});
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['sim'],
+			textureDefinitions: { sim: { storage: true, format: 'rgba8unorm', width: 8, height: 8 } },
+			passes: [reader('current'), writer, pingPong, reader('initial')]
+		});
+		const draw = () =>
+			renderer.render({ time: 0, delta: 0.016, renderMode: 'manual', uniforms: {}, textures: {} });
+		const entriesOf = (group: unknown) => {
+			const index = runtime.device.createBindGroup.mock.results.findIndex(
+				(result) => result.value === group
+			);
+			return Array.from(
+				(runtime.device.createBindGroup.mock.calls[index]![0] as GPUBindGroupDescriptor).entries
+			);
+		};
+		draw();
+		const allocations = runtime.textures.filter(
+			(texture) => (texture.descriptor.usage & GPUTextureUsage.STORAGE_BINDING) !== 0
+		);
+		const ownedView = allocations[0]!.createView.mock.results[0]!.value;
+		const previousView = allocations[2]!.createView.mock.results[0]!.value;
+		pingPong.enabled = false;
+		writer.enabled = true;
+		draw();
+		const boundResources = runtime.computePasses
+			.at(-1)!
+			.setBindGroup.mock.calls.filter((call) => call[0] === 1);
+		expect(boundResources).toHaveLength(3);
+		expect(entriesOf(boundResources[0]![1])[0]!.resource).toBe(previousView);
+		expect(entriesOf(boundResources[1]![1])[0]!.resource).toBe(ownedView);
+		expect(entriesOf(boundResources[2]![1])[0]!.resource).toBe(ownedView);
+		const sceneGroup = runtime.renderPasses.at(-1)!.setBindGroup.mock.calls[0]![1];
+		expect(entriesOf(sceneGroup).find((entry) => entry.binding === 3)?.resource).toBe(ownedView);
+		draw(); // The initial reader now imports the regular writer's previous result.
+		const bindGroupCount = runtime.device.createBindGroup.mock.calls.length;
+		const pipelineCount = runtime.device.createComputePipeline.mock.calls.length;
+		draw();
+		expect(runtime.device.createBindGroup).toHaveBeenCalledTimes(bindGroupCount);
+		expect(runtime.device.createComputePipeline).toHaveBeenCalledTimes(pipelineCount);
+		renderer.destroy();
+	});
+
+	it.each([false, true])(
+		'detaches only the removed compute pair that owns the published view (other owner: %s)',
+		async (otherOwner) => {
+			const runtime = createWebGpuRuntime();
+			const { PingPongComputePass } = await import('../../lib/passes/PingPongComputePass');
+			const makePass = () =>
+				new PingPongComputePass({
+					compute:
+						'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {}',
+					resources: {
+						previous: { texture: 'sim', access: 'sampled', pingPong: 'read' },
+						next: { texture: 'sim', access: 'storage-write', pingPong: 'write' }
+					}
+				});
+			const removed = makePass();
+			const retained = makePass();
+			const passes: AnyPass[] = [removed];
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: { storage: true, format: 'rgba8unorm', width: 8, height: 8 } },
+				getPasses: () => passes
+			});
+			const draw = () =>
+				renderer.render({
+					time: 0,
+					delta: 0.016,
+					renderMode: 'manual',
+					uniforms: {},
+					textures: {}
+				});
+			const storageTextures = () =>
+				runtime.textures.filter(
+					(texture) => (texture.descriptor.usage & GPUTextureUsage.STORAGE_BINDING) !== 0
+				);
+			draw();
+			const [owned, removedA, removedB] = storageTextures();
+			if (otherOwner) {
+				removed.enabled = false;
+				passes.push(retained);
+				draw();
+				retained.enabled = false;
+			}
+			passes.splice(0, 1);
+			draw();
+			const expectedView = (otherOwner ? storageTextures().at(-1) : owned)?.createView.mock
+				.results[0]?.value;
+			const sceneGroups = runtime.device.createBindGroup.mock.calls
+				.map((call) => call[0] as GPUBindGroupDescriptor)
+				.filter((descriptor) => Array.from(descriptor.entries).length === 4);
+			expect(expectedView).toBeDefined();
+			expect(
+				Array.from(sceneGroups.at(-1)!.entries).find((entry) => entry.binding === 3)?.resource
+			).toBe(expectedView);
+			expect(removedA?.destroy).toHaveBeenCalledTimes(1);
+			expect(removedB?.destroy).toHaveBeenCalledTimes(1);
+			expect(owned?.destroy).not.toHaveBeenCalled();
+			renderer.destroy();
+			expect(removedA?.destroy).toHaveBeenCalledTimes(1);
+			expect(removedB?.destroy).toHaveBeenCalledTimes(1);
+		}
+	);
+
 	it('destroys ping-pong texture pairs during renderer.destroy()', async () => {
 		const runtime = createWebGpuRuntime();
 		const { PingPongComputePass } = await import('../../lib/passes/PingPongComputePass');
@@ -3547,6 +4003,253 @@ describe('createRenderer', () => {
 		for (const texture of storageTextures) {
 			expect(texture.destroy).toHaveBeenCalledTimes(1);
 		}
+	});
+
+	it.each(['first', 'later', 'reset', 'submit'] as const)(
+		'commits shader feedback state only after submission (%s failure)',
+		async (failure) => {
+			const runtime = createWebGpuRuntime();
+			const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+			const feedback = new PingPongShaderPass({
+				target: 'sim',
+				width: 8,
+				height: 8,
+				fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+			});
+			let fail = false;
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: { colorSpace: 'linear' } },
+				passes: [
+					feedback,
+					{
+						needsSwap: false,
+						render() {
+							if (fail) throw new Error('Aborted');
+						}
+					}
+				]
+			});
+			if (failure !== 'first') renderFrame(renderer);
+			if (failure === 'reset') feedback.reset([0.25, 0, 0, 1]);
+			const committed = feedback.getCurrentOutput();
+			if (failure === 'submit')
+				runtime.device.queue.submit.mockImplementationOnce(() => {
+					throw new Error('Aborted');
+				});
+			else fail = true;
+			expect(() => renderFrame(renderer)).toThrow('Aborted');
+			expect(feedback.getCurrentOutput()).toBe(committed);
+			fail = false;
+			renderFrame(renderer);
+			expect(feedback.getCurrentOutput()).toBe(committed === 'simA' ? 'simB' : 'simA');
+			if (failure === 'first' || failure === 'reset') {
+				const clears = runtime.commandEncoders
+					.at(-1)!
+					.beginRenderPass.mock.calls.map(
+						([descriptor]) =>
+							Array.from((descriptor as GPURenderPassDescriptor).colorAttachments)[0]
+					)
+					.filter((attachment) => attachment?.loadOp === 'clear');
+				expect(clears.length).toBeGreaterThanOrEqual(3);
+			}
+			renderer.destroy();
+		}
+	);
+
+	it('retries aborted compute feedback with the same read/write direction', async () => {
+		const runtime = createWebGpuRuntime();
+		const { PingPongComputePass } = await import('../../lib/passes/PingPongComputePass');
+		const feedback = new PingPongComputePass({
+			compute:
+				'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {}',
+			resources: {
+				previous: { texture: 'sim', access: 'sampled', pingPong: 'read' },
+				next: { texture: 'sim', access: 'storage-write', pingPong: 'write' }
+			}
+		});
+		let fail = false;
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['sim'],
+			textureDefinitions: { sim: { storage: true, format: 'rgba16float', width: 8, height: 8 } },
+			passes: [
+				feedback,
+				{
+					needsSwap: false,
+					render() {
+						if (fail) throw new Error('Aborted');
+					}
+				}
+			]
+		});
+		renderFrame(renderer);
+		fail = true;
+		expect(() => renderFrame(renderer)).toThrow('Aborted');
+		const abortedGroup = runtime.computePasses.at(-1)!.setBindGroup.mock.calls.at(-1)![1];
+		fail = false;
+		renderFrame(renderer);
+		expect(runtime.computePasses.at(-1)!.setBindGroup.mock.calls.at(-1)![1]).toBe(abortedGroup);
+		renderer.destroy();
+	});
+
+	it.each([false, true])(
+		'validates feedback against the material sampling layout (float32-filterable=%s)',
+		async (filterable) => {
+			const runtime = createWebGpuRuntime();
+			if (filterable) (runtime.device.features as unknown as Set<string>).add('float32-filterable');
+			const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+			const feedback = new PingPongShaderPass({
+				target: 'sim',
+				format: 'rgba32float',
+				fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+			});
+			let passes: AnyPass[] = [];
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: {} },
+				getPasses: () => passes
+			});
+			renderFrame(renderer);
+			passes = [feedback];
+			const submissions = runtime.device.queue.submit.mock.calls.length;
+			if (filterable) expect(() => renderFrame(renderer)).not.toThrow();
+			else {
+				expect(() => renderFrame(renderer)).toThrow(/sim.*rgba32float.*material.*format/s);
+				expect(runtime.device.queue.submit).toHaveBeenCalledTimes(submissions);
+			}
+			renderer.destroy();
+		}
+	);
+
+	it.each(['rgba32float', 'rgba16float'] as const)(
+		'publishes physical feedback metadata for %s and restores the material fallback on removal',
+		async (format) => {
+			const runtime = createWebGpuRuntime();
+			const { MaterialResourceRegistry } = await import('../../lib/core/resource-registry');
+			const registered = vi.spyOn(MaterialResourceRegistry.prototype, 'registerTexture');
+			const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+			let passes: AnyPass[] = [
+				new PingPongShaderPass({
+					target: 'sim',
+					format,
+					width: 8,
+					height: 4,
+					fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+				})
+			];
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: { format: 'rgba32float' } },
+				getPasses: () => passes
+			});
+			const resource = registered.mock.results[0]!.value;
+			const fallback = resource.publishedView;
+			renderFrame(renderer);
+			expect(resource).toMatchObject({
+				format,
+				width: 8,
+				height: 4,
+				mipLevelCount: 1,
+				ownedTexture: null
+			});
+			expect(resource.sampledView).toBe(resource.publishedView);
+			expect(resource.publishedView).not.toBe(fallback);
+			passes = [];
+			renderFrame(renderer);
+			expect(resource.publishedView).toBe(fallback);
+			expect(resource.width).toBeUndefined();
+			renderer.destroy();
+		}
+	);
+
+	it('bounds feedback shader history while retaining active pipelines', async () => {
+		const runtime = createWebGpuRuntime();
+		const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+		const source = (index: number) => `fn frag(uv: vec2f) -> vec4f { return vec4f(${index}.0); }`;
+		const stable = new PingPongShaderPass({ target: 'stable', fragment: source(0) });
+		const edited = new PingPongShaderPass({ target: 'edited', fragment: source(0) });
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['stable', 'edited'],
+			textureDefinitions: { stable: {}, edited: {} },
+			passes: [stable, edited]
+		});
+		renderFrame(renderer);
+		const initialCount = runtime.device.createRenderPipeline.mock.calls.length;
+		for (let index = 1; index <= 40; index += 1) {
+			edited.setFragment(source(index));
+			renderFrame(renderer);
+		}
+		expect(runtime.device.createRenderPipeline).toHaveBeenCalledTimes(initialCount + 40);
+		edited.setFragment(source(0));
+		renderFrame(renderer);
+		expect(runtime.device.createRenderPipeline).toHaveBeenCalledTimes(initialCount + 41);
+		renderFrame(renderer);
+		expect(runtime.device.createRenderPipeline).toHaveBeenCalledTimes(initialCount + 41);
+		renderer.destroy();
+	});
+
+	it('tracks shared shader feedback output and reset separately for each texture owner', async () => {
+		const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+		const pass = new PingPongShaderPass({
+			target: 'sim',
+			width: 8,
+			height: 8,
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return textureLoad(spektralPrevious, vec2i(0), 0); }'
+		});
+		const create = async () => {
+			const runtime = createWebGpuRuntime();
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: { colorSpace: 'linear' } },
+				passes: [pass]
+			});
+			return {
+				runtime,
+				renderer,
+				draw: () =>
+					renderer.render({
+						time: 0,
+						delta: 0.016,
+						renderMode: 'manual',
+						uniforms: {},
+						textures: {}
+					})
+			};
+		};
+		const first = await create();
+		const second = await create();
+		first.draw();
+		expect(pass.getCurrentOutput()).toBe('simB');
+		second.draw();
+		expect(pass.getCurrentOutput()).toBe('simB');
+		pass.reset([0.25, 0, 0, 1]);
+		first.draw();
+		first.draw();
+		expect(pass.getCurrentOutput()).toBe('simA');
+		second.draw();
+		expect(pass.getCurrentOutput()).toBe('simB');
+		for (const { runtime } of [first, second]) {
+			const resets = runtime.commandEncoders
+				.flatMap((encoder) => encoder.beginRenderPass.mock.calls)
+				.map((call) => call[0] as GPURenderPassDescriptor)
+				.filter((descriptor) =>
+					Array.from(descriptor.colorAttachments).some(
+						(attachment) =>
+							attachment?.loadOp === 'clear' && (attachment.clearValue as GPUColorDict)?.r === 0.25
+					)
+				);
+			expect(resets).toHaveLength(2);
+		}
+		first.renderer.destroy();
+		second.draw();
+		expect(pass.getCurrentOutput()).toBe('simA');
+		second.renderer.destroy();
 	});
 
 	it('renders ping-pong shader iterations before scene and exposes output as material texture', async () => {
@@ -3626,6 +4329,40 @@ describe('createRenderer', () => {
 		expect(fragmentTextureBindGroups.length).toBeGreaterThan(0);
 
 		renderer.destroy();
+	});
+
+	it('releases feedback frame buffers on resize, removal, and renderer teardown', async () => {
+		const runtime = createWebGpuRuntime();
+		const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+		const pass = new PingPongShaderPass({
+			target: 'fluid',
+			width: 8,
+			height: 8,
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }'
+		});
+		let passes = [pass];
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['fluid'],
+			textureDefinitions: { fluid: {} },
+			getPasses: () => passes
+		});
+		const initialBufferCount = runtime.buffers.length;
+		renderFrame(renderer);
+		const firstBuffers = runtime.buffers.slice(initialBufferCount);
+		expect(firstBuffers.length).toBeGreaterThan(0);
+		pass.setDimensions(16, 16);
+		renderFrame(renderer);
+		for (const buffer of firstBuffers) expect(buffer.destroy).toHaveBeenCalledTimes(1);
+		passes = [];
+		renderFrame(renderer);
+		for (const buffer of runtime.buffers.slice(initialBufferCount)) {
+			expect(buffer.destroy).toHaveBeenCalledTimes(1);
+		}
+		passes = [pass];
+		renderFrame(renderer);
+		renderer.destroy();
+		for (const buffer of runtime.buffers) expect(buffer.destroy).toHaveBeenCalledTimes(1);
 	});
 
 	it('excludes the ping-pong shader target from the feedback material bind group', async () => {
@@ -3733,6 +4470,46 @@ describe('createRenderer', () => {
 
 		renderer.destroy();
 	});
+
+	it.each([undefined, 'rgba8unorm-srgb', 'rgba16float'] as const)(
+		'reallocates automatic texture formats on colorSpace changes and preserves explicit %s',
+		async (format) => {
+			const runtime = createWebGpuRuntime();
+			const source = document.createElement('canvas');
+			source.width = source.height = 16;
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['uPhoto'],
+				textureDefinitions: { uPhoto: { source, ...(format ? { format } : {}) } }
+			});
+			const allocations = () =>
+				runtime.textures.filter(
+					(texture) => (texture.descriptor.size as { width: number }).width === 16
+				);
+			const initial = allocations()[0]!;
+			const pipelines = runtime.device.createRenderPipeline.mock.calls.length;
+			const render = (colorSpace: 'srgb' | 'linear') =>
+				renderer.render({
+					time: 0,
+					delta: 0.016,
+					renderMode: 'always',
+					uniforms: {},
+					textures: { uPhoto: { source, colorSpace } }
+				});
+			render('linear');
+			expect(allocations()).toHaveLength(format ? 1 : 2);
+			expect(allocations().at(-1)?.descriptor.format).toBe(format ?? 'rgba8unorm');
+			expect(initial.destroy).toHaveBeenCalledTimes(format ? 0 : 1);
+			render('linear');
+			expect(allocations()).toHaveLength(format ? 1 : 2);
+			render('srgb');
+			expect(allocations()).toHaveLength(format ? 1 : 3);
+			expect(allocations().at(-1)?.descriptor.format).toBe(format ?? 'rgba8unorm-srgb');
+			expect(runtime.device.createRenderPipeline).toHaveBeenCalledTimes(pipelines);
+			renderer.destroy();
+			for (const allocation of allocations()) expect(allocation.destroy).toHaveBeenCalledTimes(1);
+		}
+	);
 
 	it('honours explicit TextureDefinition.format when uploading source textures', async () => {
 		const runtime = createWebGpuRuntime();

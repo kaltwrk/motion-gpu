@@ -1,3 +1,5 @@
+import { ActivePipelineCache } from './renderer/pipeline-cache.js';
+import { FrameStateTransaction } from './renderer/frame-state.js';
 import { buildRenderTargetSignature, resolveRenderTargetDefinitions } from './render-targets.js';
 import {
 	hasSameRenderGraphPhysicalAccessSignature,
@@ -27,6 +29,7 @@ import {
 	toComputeSampledFallbackClass
 } from './compute-fallback-textures.js';
 import { MaterialResourceRegistry, type RuntimeTextureResource } from './resource-registry.js';
+import { selectFeedbackOwner } from './pass-brand.js';
 import { normalizeStorageBufferDefinition } from './storage-buffers.js';
 import {
 	isManagedComputePass,
@@ -146,6 +149,7 @@ interface PingPongTexturePair {
  * Runtime fragment-feedback textures for a single pass instance.
  */
 interface PingPongShaderTexturePair {
+	frameBuffer: GPUBuffer;
 	target: string;
 	format: GPUTextureFormat;
 	width: number;
@@ -406,10 +410,10 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		const fragmentTextureKeys = options.textureKeys.filter(
 			(key) => options.textureDefinitions[key]?.fragmentVisible !== false
 		);
-		const buildSceneShader = (premultiplyOutputAlpha: boolean) =>
+		const buildSceneShader = (directToCanvas: boolean) =>
 			buildShaderSourceWithMap(options.fragmentWgsl, options.uniformLayout, fragmentTextureKeys, {
-				convertLinearToSrgb,
-				premultiplyOutputAlpha,
+				convertLinearToSrgb: directToCanvas && convertLinearToSrgb,
+				premultiplyOutputAlpha: directToCanvas,
 				fragmentLineMap: options.fragmentLineMap,
 				...(options.storageBufferKeys !== undefined
 					? { storageBufferKeys: options.storageBufferKeys }
@@ -506,16 +510,19 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					`Texture "${key}" with format "${config.format}" cannot generate mipmaps because it is not filterable on this device.`
 				);
 			}
+			const maxAnisotropy =
+				samplingLayout.samplerType === 'filtering' && samplingLayout.effectiveFilter === 'linear'
+					? config.anisotropy
+					: 1;
 			const sampler = device.createSampler({
 				magFilter: samplingLayout.effectiveFilter,
 				minFilter: samplingLayout.effectiveFilter,
-				mipmapFilter: config.generateMipmaps ? samplingLayout.effectiveFilter : 'nearest',
+				// WebGPU requires linear mip filtering for anisotropy, even with one mip level.
+				mipmapFilter:
+					config.generateMipmaps || maxAnisotropy > 1 ? samplingLayout.effectiveFilter : 'nearest',
 				addressModeU: config.addressModeU,
 				addressModeV: config.addressModeV,
-				maxAnisotropy:
-					samplingLayout.samplerType === 'filtering' && samplingLayout.effectiveFilter === 'linear'
-						? config.anisotropy
-						: 1
+				maxAnisotropy
 			});
 			let fallbackView: GPUTextureView;
 			let resource: RuntimeTextureResource;
@@ -690,16 +697,11 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		await ensurePresentationPipeline(
 			colorPipeline.canvasFormat,
 			colorPipeline.dynamicRange === 'auto' ? 'hdr' : colorPipeline.dynamicRange,
-			colorPipeline.requiresPresentationPass,
+			true,
 			true
 		);
 		if (colorPipeline.dynamicRange === 'auto') {
-			await ensurePresentationPipeline(
-				colorPipeline.fallbackCanvasFormat,
-				'sdr',
-				colorPipeline.requiresPresentationPass,
-				true
-			);
+			await ensurePresentationPipeline(colorPipeline.fallbackCanvasFormat, 'sdr', true, true);
 		}
 		const presentationSampler = device.createSampler({
 			magFilter: presentationSamplingLayout.effectiveFilter,
@@ -826,6 +828,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		};
 
 		const destroyPingPongShaderTexturePair = (pair: PingPongShaderTexturePair): void => {
+			pair.frameBuffer.destroy();
 			pair.textureA.destroy();
 			pair.textureB.destroy();
 		};
@@ -894,6 +897,10 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			});
 
 			const pair: PingPongShaderTexturePair = {
+				frameBuffer: device.createBuffer({
+					size: 16,
+					usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+				}),
 				target: options.target,
 				format: options.format,
 				width: options.width,
@@ -954,7 +961,9 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			| { kind: 'ready'; entry: ComputePipelineEntry }
 			| { kind: 'error'; error: Error };
 		const MAX_COMPUTE_PIPELINE_CACHE_ENTRIES = 32;
-		const computePipelineCache = new Map<string, ComputePipelineCacheState>();
+		const computePipelineCache = new ActivePipelineCache<ComputePipelineCacheState>(
+			MAX_COMPUTE_PIPELINE_CACHE_ENTRIES
+		);
 		let nextComputePipelineLabelIndex = 0;
 		const computeResourceLimits = getComputeResourceResolverLimits(device);
 		const computeResourceResolutionCache = createComputePassResourceResolutionCache();
@@ -967,31 +976,6 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		].join(',');
 
 		const requestRender = options.requestRender;
-
-		const setComputePipelineCacheState = (
-			cacheKey: string,
-			state: ComputePipelineCacheState
-		): void => {
-			if (computePipelineCache.has(cacheKey)) {
-				computePipelineCache.delete(cacheKey);
-			}
-			computePipelineCache.set(cacheKey, state);
-			while (computePipelineCache.size > MAX_COMPUTE_PIPELINE_CACHE_ENTRIES) {
-				const oldestKey = computePipelineCache.keys().next().value;
-				if (oldestKey === undefined) {
-					break;
-				}
-				computePipelineCache.delete(oldestKey);
-			}
-		};
-
-		const touchComputePipelineCacheState = (
-			cacheKey: string,
-			state: ComputePipelineCacheState
-		): void => {
-			computePipelineCache.delete(cacheKey);
-			computePipelineCache.set(cacheKey, state);
-		};
 
 		const computeBuildResult = (
 			cacheKey: string,
@@ -1123,12 +1107,12 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				// us (defensive — the cache is keyed by source so this should
 				// be a no-op in practice, but it guards against in-flight
 				// stragglers when the user edits the same source rapidly).
-				const current = computePipelineCache.get(cacheKey);
-				if (!current || current.kind !== 'pending') {
+				const current = computePipelineCache.peek(cacheKey);
+				if (!current || current.kind !== 'pending' || current.entry !== entry) {
 					return;
 				}
 				if (compilationError) {
-					setComputePipelineCacheState(cacheKey, {
+					computePipelineCache.set(cacheKey, {
 						kind: 'error',
 						error: compilationError
 					});
@@ -1139,22 +1123,24 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					uncapturedErrorMessages.length = 0;
 					requestRender?.();
 				} else {
-					setComputePipelineCacheState(cacheKey, { kind: 'ready', entry });
+					computePipelineCache.set(cacheKey, { kind: 'ready', entry });
 				}
 			})();
 
 			return { kind: 'pending', entry, validation };
 		};
 
-		const buildComputePipelineEntry = (buildOptions: {
-			computeSource: string;
-			workgroupSize: [number, number, number];
-			resources: ResolvedComputePassResources;
-		}): ComputePipelineEntry => {
+		const buildComputePipelineEntry = (
+			pass: ComputePassLike,
+			buildOptions: {
+				computeSource: string;
+				workgroupSize: [number, number, number];
+				resources: ResolvedComputePassResources;
+			}
+		): ComputePipelineEntry => {
 			const cacheKey = `compute:${computeUniformTopologyKey}:${buildOptions.resources.topologyKey}:${computeDeviceCapabilityKey}:${buildOptions.workgroupSize.join(',')}:${buildOptions.computeSource}`;
-			const cached = computePipelineCache.get(cacheKey);
+			const cached = computePipelineCache.use(pass, cacheKey);
 			if (cached) {
-				touchComputePipelineCacheState(cacheKey, cached);
 				if (cached.kind === 'error') {
 					// Drain any derivative cascade messages that may have
 					// arrived between frames so consumeUncapturedErrorMessage
@@ -1166,7 +1152,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			}
 
 			const state = computeBuildResult(cacheKey, buildOptions);
-			setComputePipelineCacheState(cacheKey, state);
+			computePipelineCache.set(cacheKey, state);
 			if (state.kind === 'error') {
 				uncapturedErrorMessages.length = 0;
 				throw state.error;
@@ -1180,7 +1166,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			previousBindGroupLayout: GPUBindGroupLayout;
 			textureKeys: string[];
 		}
-		const pingPongShaderPipelineCache = new Map<string, PingPongShaderPipelineEntry>();
+		const pingPongShaderPipelineCache = new ActivePipelineCache<PingPongShaderPipelineEntry>(32);
 
 		const getFragmentTextureBindingsForKeys = (keys: string[]): RuntimeTextureBinding[] =>
 			keys.map((key, index) => {
@@ -1232,7 +1218,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				options.uniformLayout.entries.map((entry) => `${entry.name}:${entry.type}`).join(','),
 				fragment
 			].join('|');
-			const cached = pingPongShaderPipelineCache.get(cacheKey);
+			const cached = pingPongShaderPipelineCache.use(pass, cacheKey);
 			if (cached) {
 				return cached;
 			}
@@ -1480,13 +1466,19 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		let hasUniformSnapshot = false;
 		const mipmapGenerator = createGpuMipmapGenerator(device);
 
-		const writeFrameBuffer = (time: number, delta: number, width: number, height: number): void => {
+		const writeFrameBuffer = (
+			time: number,
+			delta: number,
+			width: number,
+			height: number,
+			destination = frameBuffer
+		): void => {
 			frameScratch[0] = time;
 			frameScratch[1] = delta;
 			frameScratch[2] = width;
 			frameScratch[3] = height;
 			device.queue.writeBuffer(
-				frameBuffer,
+				destination,
 				0,
 				frameScratch.buffer as ArrayBuffer,
 				frameScratch.byteOffset,
@@ -1499,10 +1491,11 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		 */
 		const createTextureBindGroup = (
 			layout: GPUBindGroupLayout,
-			bindings: RuntimeTextureBinding[]
+			bindings: RuntimeTextureBinding[],
+			frameUniformBuffer = frameBuffer
 		): GPUBindGroup => {
 			const entries: GPUBindGroupEntry[] = [
-				{ binding: FRAME_BINDING, resource: { buffer: frameBuffer } },
+				{ binding: FRAME_BINDING, resource: { buffer: frameUniformBuffer } },
 				{ binding: UNIFORM_BINDING, resource: { buffer: uniformBuffer } }
 			];
 
@@ -1526,30 +1519,41 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		const createBindGroup = (): GPUBindGroup =>
 			createTextureBindGroup(bindGroupLayout, fragmentTextureBindings);
 
-		const createPingPongShaderBindGroup = (entry: PingPongShaderPipelineEntry): GPUBindGroup =>
+		const createPingPongShaderBindGroup = (
+			entry: PingPongShaderPipelineEntry,
+			frameUniformBuffer: GPUBuffer
+		): GPUBindGroup =>
 			createTextureBindGroup(
 				entry.bindGroupLayout,
-				getFragmentTextureBindingsForKeys(entry.textureKeys)
+				getFragmentTextureBindingsForKeys(entry.textureKeys),
+				frameUniformBuffer
 			);
 
 		const attachFeedbackTextureBinding = (
 			binding: RuntimeTextureBinding,
-			view: GPUTextureView
+			view: GPUTextureView,
+			pair: PingPongShaderTexturePair,
+			frameState: FrameStateTransaction
 		): boolean => {
 			const resource = binding.resource;
+			frameState.capture(binding);
+			frameState.capture(resource);
 			const changed = resource.publishedView !== view || !binding.feedbackViewActive;
-			resource.ownedTexture?.destroy();
+			const previousTexture = resource.ownedTexture;
+			if (previousTexture) frameState.afterSubmit(() => previousTexture.destroy());
 			resourceRegistry.replaceTextureAllocation(binding.key, {
 				ownedTexture: null,
 				storageView: null,
-				sampledView: binding.fallbackView,
-				format: resource.format,
-				width: undefined,
-				height: undefined,
+				sampledView: view,
+				format: pair.format,
+				width: pair.width,
+				height: pair.height,
 				mipLevelCount: 1,
-				usage: sampledFallbackUsage
+				usage:
+					GPUTextureUsage.TEXTURE_BINDING |
+					GPUTextureUsage.RENDER_ATTACHMENT |
+					GPUTextureUsage.COPY_DST
 			});
-			resourceRegistry.publishTextureView(binding.key, view);
 			binding.feedbackViewActive = true;
 			binding.source = null;
 			binding.lastToken = null;
@@ -1584,7 +1588,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					ownedTexture: null,
 					storageView: null,
 					sampledView: binding.fallbackView,
-					format: resource.format,
+					format: normalizedTextureDefinitions[binding.key]!.format,
 					width: undefined,
 					height: undefined,
 					mipLevelCount: 1,
@@ -1599,7 +1603,11 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 
 			const source = nextData.source;
 			const colorSpace = nextData.colorSpace ?? binding.defaultColorSpace;
-			const format = resource.format;
+			// Implicit formats follow the current source's decode policy. Both choices
+			// use the same float sampling layout; explicit formats remain authoritative.
+			const format =
+				options.textureDefinitions[binding.key]?.format ??
+				(colorSpace === 'linear' ? 'rgba8unorm' : 'rgba8unorm-srgb');
 			const flipY = nextData.flipY ?? binding.defaultFlipY;
 			const premultipliedAlpha = nextData.premultipliedAlpha ?? binding.defaultPremultipliedAlpha;
 			const generateMipmaps = nextData.generateMipmaps ?? binding.defaultGenerateMipmaps;
@@ -1705,7 +1713,10 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			return publishedViewChanged;
 		};
 
-		const generateDirtyTextureMipmaps = (commandEncoder: GPUCommandEncoder): void => {
+		const generateDirtyTextureMipmaps = (
+			commandEncoder: GPUCommandEncoder,
+			frameState: FrameStateTransaction
+		): void => {
 			for (const binding of textureBindings) {
 				const resource = binding.resource;
 				if (
@@ -1723,7 +1734,9 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					format: resource.format,
 					mipLevelCount: resource.mipLevelCount
 				});
-				binding.mipmapsDirty = false;
+				frameState.afterSubmit(() => {
+					binding.mipmapsDirty = false;
+				});
 			}
 		};
 
@@ -1735,9 +1748,13 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		}
 
 		let bindGroup = createBindGroup();
+		// Source allocations can change before a later texture update throws.
+		// Retain their invalidation until the fragment bind group is rebuilt.
+		let sourceTextureBindingsDirty = false;
 		let sourceSlotTarget: RuntimeRenderTarget | null = null;
 		let targetSlotTarget: RuntimeRenderTarget | null = null;
 		let presentationSlotTarget: RuntimeRenderTarget | null = null;
+		let presentationTargetUsed = false;
 		let renderTargetSignature = '';
 		let renderTargetSnapshot: Readonly<Record<string, RenderTarget>> = {};
 		let renderTargetFormatSnapshot: RenderTargetFormatMap = {};
@@ -1785,9 +1802,10 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		const frameSlots = {
 			source: null as unknown as RuntimeRenderTarget,
 			target: null as unknown as RuntimeRenderTarget,
-			canvas: canvasSurface
+			get canvas(): RenderTarget {
+				return ensurePresentationTarget(canvasSurface.width, canvasSurface.height);
+			}
 		};
-		let frameSlotsActive = false;
 
 		/**
 		 * Resolves active render pass list for current frame.
@@ -1992,14 +2010,25 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			}
 		};
 
-		const syncPingPongComputeTextureLifecycle = (passes: AnyPass[]): void => {
+		const syncPingPongComputeTextureLifecycle = (passes: AnyPass[]): boolean => {
 			const activeComputePasses = new Set(passes.filter(isManagedComputePass));
+			let fragmentBindingsChanged = false;
 			for (const [pass, pair] of pingPongTexturePairs.entries()) {
 				if (activeComputePasses.has(pass)) continue;
+				const resource = resourceRegistry.requireTexture(pair.logicalId);
+				// Another pass may already own the published result for this slot.
+				// Detach only views belonging to the allocation being released.
+				if (resource.publishedView === pair.viewA || resource.publishedView === pair.viewB) {
+					resourceRegistry.publishTextureView(pair.logicalId, resource.sampledView);
+					if (textureBindingByKey.get(pair.logicalId)?.fragmentVisible) {
+						fragmentBindingsChanged = true;
+					}
+				}
 				pair.textureA.destroy();
 				pair.textureB.destroy();
 				pingPongTexturePairs.delete(pass);
 			}
+			return fragmentBindingsChanged;
 		};
 
 		/**
@@ -2032,6 +2061,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		};
 
 		const ensurePresentationTarget = (width: number, height: number): RuntimeRenderTarget => {
+			presentationTargetUsed = true;
 			if (
 				presentationSlotTarget &&
 				presentationSlotTarget.width === width &&
@@ -2284,427 +2314,481 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			}
 
 			const commandEncoder = device.createCommandEncoder();
-			let bindGroupDirty = false;
 			for (const binding of textureBindings) {
 				// Storage textures are managed by compute passes, skip source-driven updates
 				if (normalizedTextureDefinitions[binding.key]?.storage) continue;
 				if (activePingPongShaderTargets.has(binding.key)) continue;
+				const runtimeTexture = textures[binding.key];
 				const nextTexture =
-					textures[binding.key] ?? normalizedTextureDefinitions[binding.key]?.source ?? null;
+					runtimeTexture === undefined
+						? (normalizedTextureDefinitions[binding.key]?.source ?? null)
+						: runtimeTexture;
 				if (updateTextureBinding(binding, nextTexture, renderMode) && binding.fragmentVisible) {
-					bindGroupDirty = true;
+					sourceTextureBindingsDirty = true;
 				}
 			}
 
-			if (bindGroupDirty) {
+			if (sourceTextureBindingsDirty) {
 				bindGroup = createBindGroup();
-				bindGroupDirty = false;
+				sourceTextureBindingsDirty = false;
 			}
+			let bindGroupDirty = false;
 
 			// Apply pending storage buffer writes
 			if (pendingStorageWrites) {
 				flushStorageWrites(pendingStorageWrites);
 			}
 
-			generateDirtyTextureMipmaps(commandEncoder);
-			const clearColor = options.getClearColor();
-			syncPassLifecycle(passes, width, height);
-			syncPingPongComputeTextureLifecycle(passes);
-			syncPingPongShaderTextureLifecycle(passes);
-			const runtimeTargets = syncRenderTargets(width, height);
-			const framePasses = resolveFramePasses(passes);
-			resolvedComputeResourcesByPass.clear();
-			computeLabelsByPass.clear();
-			const computeExternalContext = { device, width, height, time, delta };
-			let computeDeclarationIndex = 0;
-			let computeResolutionFrameStarted = false;
-			for (const pass of passes) {
-				if (pass.enabled === false) continue;
-				if (!isManagedComputePass(pass)) continue;
-				if (!computeResolutionFrameStarted) {
-					computeResourceResolutionCache.beginFrame();
-					computeResolutionFrameStarted = true;
+			const frameState = new FrameStateTransaction();
+			let committedBindGroup = bindGroup;
+			try {
+				generateDirtyTextureMipmaps(commandEncoder, frameState);
+				const clearColor = options.getClearColor();
+				syncPassLifecycle(passes, width, height);
+				computePipelineCache.retainOwners(
+					passes.filter((pass) => pass.enabled !== false && isManagedComputePass(pass))
+				);
+				pingPongShaderPipelineCache.retainOwners(
+					passes.filter((pass) => pass.enabled !== false && isManagedFeedbackPass(pass))
+				);
+				if (syncPingPongComputeTextureLifecycle(passes)) bindGroupDirty = true;
+				syncPingPongShaderTextureLifecycle(passes);
+				if (bindGroupDirty) {
+					bindGroup = createBindGroup();
+					bindGroupDirty = false;
 				}
-				const passLabel = pass.label ?? `Compute pass #${computeDeclarationIndex}`;
-				computeDeclarationIndex += 1;
-				const resources = computeResourceResolutionCache.resolve({
-					pass,
-					pingPong: pass.isPingPong === true,
-					context: {
-						passLabel,
-						deviceFeatures: device.features as ReadonlySet<string>,
-						limits: computeResourceLimits,
-						externalContext: computeExternalContext,
-						getMaterialTexture: (logicalId) => resourceRegistry.getTexture(logicalId),
-						getMaterialStorageBuffer: (logicalId) => resourceRegistry.getStorageBuffer(logicalId),
-						getMaterialSampler: (logicalId) => {
-							const binding = textureBindingByKey.get(logicalId);
-							return binding
-								? {
-										logicalId,
-										sampler: binding.sampler,
-										type: binding.samplerType,
-										sampleType: binding.resource.sampleType
-									}
-								: undefined;
-						},
-						createTextureView: createCachedExternalTextureView,
-						diagnosticContext: runtimeContext
+				committedBindGroup = bindGroup;
+				const runtimeTargets = syncRenderTargets(width, height);
+				const framePasses = resolveFramePasses(passes);
+				resolvedComputeResourcesByPass.clear();
+				computeLabelsByPass.clear();
+				const computeExternalContext = { device, width, height, time, delta };
+				let computeDeclarationIndex = 0;
+				let computeResolutionFrameStarted = false;
+				for (const pass of passes) {
+					if (pass.enabled === false) continue;
+					if (!isManagedComputePass(pass)) continue;
+					if (!computeResolutionFrameStarted) {
+						computeResourceResolutionCache.beginFrame();
+						computeResolutionFrameStarted = true;
 					}
-				});
-				resolvedComputeResourcesByPass.set(pass, resources);
-				computeLabelsByPass.set(pass, passLabel);
-			}
-			const canReuseGraphPlan =
-				isGraphPlanCacheValid(framePasses, clearColor) &&
-				hasSameRenderGraphPhysicalAccessSignature(cachedGraphPlan!, resolvedComputeResourcesByPass);
-			let graphPlanIsFresh = false;
-			const graphPlan = canReuseGraphPlan
-				? cachedGraphPlan!
-				: (() => {
-						let nextPlan: RenderGraphPlan;
-						try {
-							nextPlan = planRenderGraph(framePasses, clearColor, renderTargetKeys, {
-								getResolvedResources: (pass) => resolvedComputeResourcesByPass.get(pass),
-								getPassLabel: (pass) => computeLabelsByPass.get(pass) ?? 'Compute pass'
-							});
-						} catch (error) {
-							throw attachSpektralErrorContext(error, runtimeContext);
+					const passLabel = pass.label ?? `Compute pass #${computeDeclarationIndex}`;
+					computeDeclarationIndex += 1;
+					const resources = computeResourceResolutionCache.resolve({
+						pass,
+						pingPong: pass.isPingPong === true,
+						context: {
+							passLabel,
+							deviceFeatures: device.features as ReadonlySet<string>,
+							limits: computeResourceLimits,
+							externalContext: computeExternalContext,
+							getMaterialTexture: (logicalId) => resourceRegistry.getTexture(logicalId),
+							getMaterialStorageBuffer: (logicalId) => resourceRegistry.getStorageBuffer(logicalId),
+							getMaterialSampler: (logicalId) => {
+								const binding = textureBindingByKey.get(logicalId);
+								return binding
+									? {
+											logicalId,
+											sampler: binding.sampler,
+											type: binding.samplerType,
+											sampleType: binding.resource.sampleType
+										}
+									: undefined;
+							},
+							createTextureView: createCachedExternalTextureView,
+							diagnosticContext: runtimeContext
 						}
-						graphPlanIsFresh = true;
-						return nextPlan;
-					})();
-			validateBuiltInRenderPassFormats({
-				passes: framePasses,
-				workingFormat,
-				namedFormats: renderTargetFormatSnapshot,
-				deviceFeatures: device.features
-			});
-			if (graphPlan.renderSteps.length > 0) {
-				validatePresentationSourceFormat({
-					slot: graphPlan.finalOutput,
+					});
+					resolvedComputeResourcesByPass.set(pass, resources);
+					computeLabelsByPass.set(pass, passLabel);
+				}
+				const canReuseGraphPlan =
+					isGraphPlanCacheValid(framePasses, clearColor) &&
+					hasSameRenderGraphPhysicalAccessSignature(
+						cachedGraphPlan!,
+						resolvedComputeResourcesByPass
+					);
+				let graphPlanIsFresh = false;
+				const graphPlan = canReuseGraphPlan
+					? cachedGraphPlan!
+					: (() => {
+							let nextPlan: RenderGraphPlan;
+							try {
+								nextPlan = planRenderGraph(framePasses, clearColor, renderTargetKeys, {
+									getResolvedResources: (pass) => resolvedComputeResourcesByPass.get(pass),
+									getPassLabel: (pass) => computeLabelsByPass.get(pass) ?? 'Compute pass'
+								});
+							} catch (error) {
+								throw attachSpektralErrorContext(error, runtimeContext);
+							}
+							graphPlanIsFresh = true;
+							return nextPlan;
+						})();
+				validateBuiltInRenderPassFormats({
+					passes: framePasses,
 					workingFormat,
 					namedFormats: renderTargetFormatSnapshot,
-					deviceFeatures: device.features,
-					requiresFilterableInput: presentationSamplingLayout.samplerType === 'filtering'
+					deviceFeatures: device.features
 				});
-			}
-			if (graphPlanIsFresh) {
-				updateGraphPlanCache(framePasses, clearColor, graphPlan);
-				if (ownsGraphUpdater()) {
-					options.graphUpdater?.setSnapshot(graphSnapshotBuilder.build(graphPlan));
+				if (graphPlan.renderSteps.length > 0) {
+					validatePresentationSourceFormat({
+						slot: graphPlan.finalOutput,
+						workingFormat,
+						namedFormats: renderTargetFormatSnapshot,
+						deviceFeatures: device.features,
+						requiresFilterableInput: presentationSamplingLayout.samplerType === 'filtering'
+					});
 				}
-			}
-			const canvasTexture = context.getCurrentTexture();
-			// Mutate the pre-allocated surface object rather than allocating a new one.
-			canvasSurface.texture = canvasTexture;
-			canvasSurface.view = canvasTexture.createView();
-			canvasSurface.width = width;
-			canvasSurface.height = height;
-			canvasSurface.format = effectiveCanvasFormat;
-
-			const presentationRequired = colorPipeline.requiresPresentationPass;
-			const graphHasRenderSteps = graphPlan.renderSteps.length > 0;
-			const presentationSurface =
-				presentationRequired || graphHasRenderSteps
-					? ensurePresentationTarget(width, height)
-					: null;
-			if (graphHasRenderSteps) {
-				frameSlots.source = ensureSlotTarget('source', width, height);
-				frameSlots.target = ensureSlotTarget('target', width, height);
-				frameSlots.canvas = presentationSurface!;
-				frameSlotsActive = true;
-			} else {
-				frameSlotsActive = false;
-			}
-			const slots = frameSlotsActive ? frameSlots : null;
-			const sceneOutput = slots ? slots.source : (presentationSurface ?? canvasSurface);
-
-			let activeFrameBufferWidth = width;
-			let activeFrameBufferHeight = height;
-			const ensureFrameBufferResolution = (nextWidth: number, nextHeight: number): void => {
-				if (activeFrameBufferWidth === nextWidth && activeFrameBufferHeight === nextHeight) {
-					return;
+				if (graphPlanIsFresh) {
+					updateGraphPlanCache(framePasses, clearColor, graphPlan);
+					if (ownsGraphUpdater()) {
+						options.graphUpdater?.setSnapshot(graphSnapshotBuilder.build(graphPlan));
+					}
 				}
-				writeFrameBuffer(time, delta, nextWidth, nextHeight);
-				activeFrameBufferWidth = nextWidth;
-				activeFrameBufferHeight = nextHeight;
-			};
-			const clearFeedbackView = (
-				view: GPUTextureView,
-				clearColor: [number, number, number, number]
-			): void => {
-				const pass = commandEncoder.beginRenderPass({
+				const canvasTexture = context.getCurrentTexture();
+				// Mutate the pre-allocated surface object rather than allocating a new one.
+				canvasSurface.texture = canvasTexture;
+				canvasSurface.view = canvasTexture.createView();
+				canvasSurface.width = width;
+				canvasSurface.height = height;
+				canvasSurface.format = effectiveCanvasFormat;
+
+				const presentationRequired = colorPipeline.requiresPresentationPass;
+				const graphHasRenderSteps = graphPlan.renderSteps.length > 0;
+				presentationTargetUsed = false;
+				const presentationSurface =
+					presentationRequired && !graphHasRenderSteps
+						? ensurePresentationTarget(width, height)
+						: null;
+				if (graphHasRenderSteps) {
+					frameSlots.source = ensureSlotTarget('source', width, height);
+					frameSlots.target = ensureSlotTarget('target', width, height);
+				}
+				const slots = graphHasRenderSteps ? frameSlots : null;
+				const sceneOutput = slots ? slots.source : (presentationSurface ?? canvasSurface);
+
+				const clearFeedbackView = (
+					view: GPUTextureView,
+					clearColor: [number, number, number, number]
+				): void => {
+					const pass = commandEncoder.beginRenderPass({
+						colorAttachments: [
+							{
+								view,
+								clearValue: toClearValue(clearColor),
+								loadOp: 'clear',
+								storeOp: 'store'
+							}
+						]
+					});
+					pass.end();
+				};
+
+				// Execute pre-scene passes so storage textures, buffers and fragment
+				// feedback outputs are up-to-date when the scene shader samples them.
+				let computeStepIndex = 0;
+				let feedbackStepIndex = 0;
+				for (const step of graphPlan.preSceneSteps) {
+					if (step.kind === 'compute') {
+						const computeStepLabel = step.computeLabel ?? `Compute pass #${computeStepIndex}`;
+						computeStepIndex += 1;
+						if (!isManagedComputePass(step.pass)) {
+							throw new Error(`${computeStepLabel} has an invalid managed pass contract.`);
+						}
+						const computePass = step.pass;
+						const computeSource = computePass.getCompute();
+						const resources = resolvedComputeResourcesByPass.get(step.pass);
+						if (!resources) throw new Error(`${computeStepLabel} is missing resolved resources.`);
+						const pingPongRead = resources.entries.find(
+							(entry) => entry.kind === 'sampled-texture' && entry.pingPong === 'read'
+						);
+						const pingPongWrite = resources.entries.find(
+							(entry) => entry.kind === 'storage-texture' && entry.pingPong === 'write'
+						);
+						let pingPongPair: PingPongTexturePair | null = null;
+						if (computePass.isPingPong) {
+							if (
+								!pingPongRead ||
+								!pingPongWrite ||
+								pingPongRead.source !== 'material' ||
+								pingPongWrite.source !== 'material' ||
+								typeof pingPongRead.logicalId !== 'string' ||
+								!Object.is(pingPongRead.logicalId, pingPongWrite.logicalId)
+							) {
+								throw createSpektralError(
+									'PINGPONG_CONFIGURATION_INVALID',
+									`${computeStepLabel} ping-pong pair must reference one renderer-managed material texture.`
+								);
+							}
+							pingPongPair = ensurePingPongTexturePair(computePass, pingPongRead.logicalId);
+							frameState.capture(pingPongPair);
+						}
+						const workgroupSize = computePass.getWorkgroupSize();
+						const pipelineEntry = buildComputePipelineEntry(computePass, {
+							computeSource,
+							workgroupSize,
+							resources
+						});
+						const resourceBindGroup = pingPongPair
+							? null
+							: getComputeResourceBindGroup(pipelineEntry, computePass, resources);
+						const iterations = computePass.isPingPong ? (computePass.getIterations?.() ?? 1) : 1;
+						if (!Number.isInteger(iterations) || iterations < 1) {
+							throw new Error(
+								`${computeStepLabel} iterations must be a positive integer >= 1, got ${iterations}.`
+							);
+						}
+
+						for (let iter = 0; iter < iterations; iter += 1) {
+							const dispatchLabel =
+								iterations > 1 ? `${computeStepLabel} iteration ${iter + 1}` : computeStepLabel;
+							const dispatch = validateComputeDispatch(
+								computePass.resolveDispatch({
+									width,
+									height,
+									time,
+									delta,
+									workgroupSize
+								}),
+								maxComputeWorkgroupsPerDimension,
+								dispatchLabel
+							);
+							const cPass = commandEncoder.beginComputePass();
+							cPass.setPipeline(pipelineEntry.pipeline);
+							cPass.setBindGroup(0, pipelineEntry.uniformBindGroup);
+							if (pingPongPair) {
+								cPass.setBindGroup(
+									1,
+									getPingPongResourceBindGroup(
+										pipelineEntry,
+										computePass,
+										resources,
+										pingPongPair,
+										pingPongPair.readFromA
+									)
+								);
+							} else if (resourceBindGroup) {
+								cPass.setBindGroup(1, resourceBindGroup);
+							}
+							cPass.dispatchWorkgroups(dispatch[0], dispatch[1], dispatch[2]);
+							cPass.end();
+							if (pingPongPair) pingPongPair.readFromA = !pingPongPair.readFromA;
+						}
+
+						if (pingPongPair) {
+							const latestView = pingPongPair.readFromA ? pingPongPair.viewA : pingPongPair.viewB;
+							frameState.capture(resourceRegistry.requireTexture(pingPongPair.logicalId));
+							if (resourceRegistry.markTextureWritten(pingPongPair.logicalId, latestView)) {
+								const binding = textureBindingByKey.get(pingPongPair.logicalId);
+								if (binding?.fragmentVisible) bindGroupDirty = true;
+							}
+						} else {
+							const written = new Set<string>();
+							for (const entry of resources.entries) {
+								if (entry.source !== 'material' || written.has(String(entry.logicalId))) continue;
+								if (entry.kind === 'storage-texture') {
+									const logicalId = String(entry.logicalId);
+									written.add(logicalId);
+									const resource = resourceRegistry.requireTexture(logicalId);
+									frameState.capture(resource);
+									if (resourceRegistry.markTextureWritten(logicalId, resource.sampledView)) {
+										if (textureBindingByKey.get(logicalId)?.fragmentVisible) bindGroupDirty = true;
+									}
+								} else if (
+									entry.kind === 'storage-buffer' &&
+									entry.access === 'storage-read-write'
+								) {
+									written.add(String(entry.logicalId));
+									frameState.capture(
+										resourceRegistry.requireStorageBuffer(String(entry.logicalId))
+									);
+									resourceRegistry.markStorageBufferWritten(String(entry.logicalId));
+								}
+							}
+						}
+						continue;
+					}
+
+					if (step.kind !== 'feedback') {
+						continue;
+					}
+
+					const feedbackStepLabel = `PingPongShaderPass #${feedbackStepIndex}`;
+					feedbackStepIndex += 1;
+					if (!isManagedFeedbackPass(step.pass)) {
+						throw new Error(`${feedbackStepLabel} has an invalid managed pass contract.`);
+					}
+					const feedbackPass = step.pass;
+					const target = feedbackPass.getTarget();
+					if (!target) {
+						throw new Error('PingPongShaderPass must provide a target texture key.');
+					}
+
+					const targetBinding = textureBindingByKey.get(target);
+					if (!targetBinding) {
+						throw new Error(
+							`PingPongShaderPass target "${target}" must reference a declared material texture.`
+						);
+					}
+					if (!targetBinding.fragmentVisible) {
+						throw new Error(
+							`PingPongShaderPass target "${target}" must be visible to the fragment shader.`
+						);
+					}
+					if (normalizedTextureDefinitions[target]?.storage) {
+						throw new Error(
+							`PingPongShaderPass target "${target}" must be declared as a sampled texture, not storage:true. Use PingPongComputePass for storage textures.`
+						);
+					}
+
+					const feedbackFormat = feedbackPass.getFormat();
+					const feedbackSampling = resolveTextureSamplingLayout({
+						format: feedbackFormat,
+						filter: feedbackPass.getFilter(),
+						deviceFeatures: device.features
+					});
+					if (
+						feedbackSampling.sampleType === 'unfilterable-float' &&
+						targetBinding.resource.sampleType === 'float'
+					) {
+						throw createSpektralError(
+							'FORMAT_CAPABILITY_MISSING',
+							`PingPongShaderPass target "${target}" uses "${feedbackFormat}", which is not filterable on this device. Set the material texture format to "${feedbackFormat}" so its sampling layout supports this output.`
+						);
+					}
+					const size = feedbackPass.resolveSize({ width, height });
+					const pair = ensurePingPongShaderTexturePair(feedbackPass, {
+						target,
+						width: size.width,
+						height: size.height,
+						format: feedbackPass.getFormat(),
+						filter: feedbackPass.getFilter(),
+						addressModeU: feedbackPass.getAddressModeU(),
+						addressModeV: feedbackPass.getAddressModeV()
+					});
+					const pipelineEntry = buildPingPongShaderPipelineEntry(feedbackPass, pair.format, target);
+					const feedbackBindGroup = createPingPongShaderBindGroup(pipelineEntry, pair.frameBuffer);
+					frameState.capture(feedbackPass[selectFeedbackOwner](pair));
+					frameState.capture(pair);
+					const resetColor = feedbackPass.consumeResetColor();
+					const initializationColor =
+						resetColor ?? (pair.needsClear ? feedbackPass.getClearColor() : null);
+					if (initializationColor) {
+						clearFeedbackView(pair.viewA, initializationColor);
+						clearFeedbackView(pair.viewB, initializationColor);
+						pair.needsClear = false;
+					}
+
+					const iterations = feedbackPass.getIterations();
+					if (!Number.isInteger(iterations) || iterations < 1) {
+						throw new Error(
+							`${feedbackStepLabel} iterations must be a positive integer >= 1, got ${iterations}.`
+						);
+					}
+
+					// Queue writes precede the shared submission, so each feedback pass
+					// needs its own buffer instead of overwriting the scene's resolution.
+					writeFrameBuffer(time, delta, pair.width, pair.height, pair.frameBuffer);
+					const currentOutput = feedbackPass.getCurrentOutput();
+					const readFromAAtIterationZero = currentOutput !== `${pair.target}B`;
+
+					for (let iter = 0; iter < iterations; iter += 1) {
+						const readFromA = iter % 2 === 0 ? readFromAAtIterationZero : !readFromAAtIterationZero;
+						const outputView = readFromA ? pair.viewB : pair.viewA;
+						const previousBindGroup = getPingPongShaderPreviousBindGroup(
+							pair,
+							pipelineEntry.previousBindGroupLayout,
+							readFromA
+						);
+						const pass = commandEncoder.beginRenderPass({
+							colorAttachments: [
+								{
+									view: outputView,
+									clearValue: { r: 0, g: 0, b: 0, a: 0 },
+									loadOp: 'load',
+									storeOp: 'store'
+								}
+							]
+						});
+						pass.setPipeline(pipelineEntry.pipeline);
+						pass.setBindGroup(0, feedbackBindGroup);
+						pass.setBindGroup(1, previousBindGroup);
+						pass.draw(3);
+						pass.end();
+					}
+
+					feedbackPass.advanceFrame();
+					const latestOutput = feedbackPass.getCurrentOutput();
+					const latestView = latestOutput === `${pair.target}B` ? pair.viewB : pair.viewA;
+					if (attachFeedbackTextureBinding(targetBinding, latestView, pair, frameState)) {
+						bindGroup = createBindGroup();
+					}
+				}
+				if (bindGroupDirty) {
+					bindGroup = createBindGroup();
+				}
+
+				const scenePass = commandEncoder.beginRenderPass({
 					colorAttachments: [
 						{
-							view,
-							clearValue: toClearValue(clearColor),
+							view: sceneOutput.view,
+							clearValue:
+								sceneOutput === canvasSurface
+									? toPremultipliedCanvasClearValue(clearColor)
+									: toClearValue(clearColor),
 							loadOp: 'clear',
 							storeOp: 'store'
 						}
 					]
 				});
-				pass.end();
-			};
 
-			// Execute pre-scene passes so storage textures, buffers and fragment
-			// feedback outputs are up-to-date when the scene shader samples them.
-			let computeStepIndex = 0;
-			let feedbackStepIndex = 0;
-			for (const step of graphPlan.preSceneSteps) {
-				if (step.kind === 'compute') {
-					ensureFrameBufferResolution(width, height);
-					const computeStepLabel = step.computeLabel ?? `Compute pass #${computeStepIndex}`;
-					computeStepIndex += 1;
-					if (!isManagedComputePass(step.pass)) {
-						throw new Error(`${computeStepLabel} has an invalid managed pass contract.`);
+				scenePass.setPipeline(
+					!slots && !presentationRequired && directCanvasPipeline ? directCanvasPipeline : pipeline
+				);
+				scenePass.setBindGroup(0, bindGroup);
+				if (fragmentStorageBindGroup) {
+					scenePass.setBindGroup(1, fragmentStorageBindGroup);
+				}
+				scenePass.draw(3);
+				scenePass.end();
+
+				executePostSceneRenderGraph({
+					device,
+					commandEncoder,
+					graphPlan,
+					slots,
+					sceneOutput,
+					canvasSurface,
+					runtimeTargets,
+					time,
+					delta,
+					width,
+					height,
+					clearColor,
+					presentationRequired,
+					present: (sourceView, canvasView, applyFinalTransform) => {
+						present(commandEncoder, sourceView, canvasView, clearColor, applyFinalTransform);
 					}
-					const computePass = step.pass;
-					const computeSource = computePass.getCompute();
-					const resources = resolvedComputeResourcesByPass.get(step.pass);
-					if (!resources) throw new Error(`${computeStepLabel} is missing resolved resources.`);
-					const pingPongRead = resources.entries.find(
-						(entry) => entry.kind === 'sampled-texture' && entry.pingPong === 'read'
-					);
-					const pingPongWrite = resources.entries.find(
-						(entry) => entry.kind === 'storage-texture' && entry.pingPong === 'write'
-					);
-					let pingPongPair: PingPongTexturePair | null = null;
-					if (computePass.isPingPong) {
-						if (
-							!pingPongRead ||
-							!pingPongWrite ||
-							pingPongRead.source !== 'material' ||
-							pingPongWrite.source !== 'material' ||
-							typeof pingPongRead.logicalId !== 'string' ||
-							!Object.is(pingPongRead.logicalId, pingPongWrite.logicalId)
-						) {
-							throw createSpektralError(
-								'PINGPONG_CONFIGURATION_INVALID',
-								`${computeStepLabel} ping-pong pair must reference one renderer-managed material texture.`
-							);
-						}
-						pingPongPair = ensurePingPongTexturePair(computePass, pingPongRead.logicalId);
-					}
-					const workgroupSize = computePass.getWorkgroupSize();
-					const pipelineEntry = buildComputePipelineEntry({
-						computeSource,
-						workgroupSize,
-						resources
-					});
-					const resourceBindGroup = pingPongPair
-						? null
-						: getComputeResourceBindGroup(pipelineEntry, computePass, resources);
-					const iterations = computePass.isPingPong ? (computePass.getIterations?.() ?? 1) : 1;
-					if (!Number.isInteger(iterations) || iterations < 1) {
-						throw new Error(
-							`${computeStepLabel} iterations must be a positive integer >= 1, got ${iterations}.`
-						);
-					}
-
-					for (let iter = 0; iter < iterations; iter += 1) {
-						const dispatchLabel =
-							iterations > 1 ? `${computeStepLabel} iteration ${iter + 1}` : computeStepLabel;
-						const dispatch = validateComputeDispatch(
-							computePass.resolveDispatch({
-								width,
-								height,
-								time,
-								delta,
-								workgroupSize
-							}),
-							maxComputeWorkgroupsPerDimension,
-							dispatchLabel
-						);
-						const cPass = commandEncoder.beginComputePass();
-						cPass.setPipeline(pipelineEntry.pipeline);
-						cPass.setBindGroup(0, pipelineEntry.uniformBindGroup);
-						if (pingPongPair) {
-							cPass.setBindGroup(
-								1,
-								getPingPongResourceBindGroup(
-									pipelineEntry,
-									computePass,
-									resources,
-									pingPongPair,
-									pingPongPair.readFromA
-								)
-							);
-						} else if (resourceBindGroup) {
-							cPass.setBindGroup(1, resourceBindGroup);
-						}
-						cPass.dispatchWorkgroups(dispatch[0], dispatch[1], dispatch[2]);
-						cPass.end();
-						if (pingPongPair) pingPongPair.readFromA = !pingPongPair.readFromA;
-					}
-
-					if (pingPongPair) {
-						const latestView = pingPongPair.readFromA ? pingPongPair.viewA : pingPongPair.viewB;
-						if (resourceRegistry.markTextureWritten(pingPongPair.logicalId, latestView)) {
-							const binding = textureBindingByKey.get(pingPongPair.logicalId);
-							if (binding?.fragmentVisible) bindGroupDirty = true;
-						}
-					} else {
-						const written = new Set<string>();
-						for (const entry of resources.entries) {
-							if (entry.source !== 'material' || written.has(String(entry.logicalId))) continue;
-							if (entry.kind === 'storage-texture') {
-								written.add(String(entry.logicalId));
-								resourceRegistry.markTextureWritten(String(entry.logicalId));
-							} else if (entry.kind === 'storage-buffer' && entry.access === 'storage-read-write') {
-								written.add(String(entry.logicalId));
-								resourceRegistry.markStorageBufferWritten(String(entry.logicalId));
-							}
-						}
-					}
-					continue;
-				}
-
-				if (step.kind !== 'feedback') {
-					continue;
-				}
-
-				const feedbackStepLabel = `PingPongShaderPass #${feedbackStepIndex}`;
-				feedbackStepIndex += 1;
-				if (!isManagedFeedbackPass(step.pass)) {
-					throw new Error(`${feedbackStepLabel} has an invalid managed pass contract.`);
-				}
-				const feedbackPass = step.pass;
-				const target = feedbackPass.getTarget();
-				if (!target) {
-					throw new Error('PingPongShaderPass must provide a target texture key.');
-				}
-
-				const targetBinding = textureBindingByKey.get(target);
-				if (!targetBinding) {
-					throw new Error(
-						`PingPongShaderPass target "${target}" must reference a declared material texture.`
-					);
-				}
-				if (!targetBinding.fragmentVisible) {
-					throw new Error(
-						`PingPongShaderPass target "${target}" must be visible to the fragment shader.`
-					);
-				}
-				if (normalizedTextureDefinitions[target]?.storage) {
-					throw new Error(
-						`PingPongShaderPass target "${target}" must be declared as a sampled texture, not storage:true. Use PingPongComputePass for storage textures.`
-					);
-				}
-
-				const size = feedbackPass.resolveSize({ width, height });
-				const pair = ensurePingPongShaderTexturePair(feedbackPass, {
-					target,
-					width: size.width,
-					height: size.height,
-					format: feedbackPass.getFormat(),
-					filter: feedbackPass.getFilter(),
-					addressModeU: feedbackPass.getAddressModeU(),
-					addressModeV: feedbackPass.getAddressModeV()
 				});
-				const pipelineEntry = buildPingPongShaderPipelineEntry(feedbackPass, pair.format, target);
-				const feedbackBindGroup = createPingPongShaderBindGroup(pipelineEntry);
-				const resetColor = feedbackPass.consumeResetColor();
-				const initializationColor =
-					resetColor ?? (pair.needsClear ? feedbackPass.getClearColor() : null);
-				if (initializationColor) {
-					clearFeedbackView(pair.viewA, initializationColor);
-					clearFeedbackView(pair.viewB, initializationColor);
-					pair.needsClear = false;
-				}
 
-				const iterations = feedbackPass.getIterations();
-				if (!Number.isInteger(iterations) || iterations < 1) {
-					throw new Error(
-						`${feedbackStepLabel} iterations must be a positive integer >= 1, got ${iterations}.`
-					);
+				device.queue.submit([commandEncoder.finish()]);
+				// Release intermediates only after the current command buffer is submitted.
+				if (!graphHasRenderSteps) {
+					destroyRenderTexture(sourceSlotTarget);
+					destroyRenderTexture(targetSlotTarget);
+					sourceSlotTarget = targetSlotTarget = null;
+					frameSlots.source = frameSlots.target = canvasSurface;
 				}
-
-				ensureFrameBufferResolution(pair.width, pair.height);
-				const currentOutput = feedbackPass.getCurrentOutput();
-				const readFromAAtIterationZero = currentOutput !== `${pair.target}B`;
-
-				for (let iter = 0; iter < iterations; iter += 1) {
-					const readFromA = iter % 2 === 0 ? readFromAAtIterationZero : !readFromAAtIterationZero;
-					const outputView = readFromA ? pair.viewB : pair.viewA;
-					const previousBindGroup = getPingPongShaderPreviousBindGroup(
-						pair,
-						pipelineEntry.previousBindGroupLayout,
-						readFromA
-					);
-					const pass = commandEncoder.beginRenderPass({
-						colorAttachments: [
-							{
-								view: outputView,
-								clearValue: { r: 0, g: 0, b: 0, a: 0 },
-								loadOp: 'load',
-								storeOp: 'store'
-							}
-						]
-					});
-					pass.setPipeline(pipelineEntry.pipeline);
-					pass.setBindGroup(0, feedbackBindGroup);
-					pass.setBindGroup(1, previousBindGroup);
-					pass.draw(3);
-					pass.end();
+				if (!presentationTargetUsed) {
+					destroyRenderTexture(presentationSlotTarget);
+					presentationSlotTarget = null;
 				}
-
-				feedbackPass.advanceFrame();
-				const latestOutput = feedbackPass.getCurrentOutput();
-				const latestView = latestOutput === `${pair.target}B` ? pair.viewB : pair.viewA;
-				if (attachFeedbackTextureBinding(targetBinding, latestView)) {
-					bindGroup = createBindGroup();
-				}
+			} catch (error) {
+				frameState.rollback();
+				bindGroup = committedBindGroup;
+				throw error;
 			}
-			if (bindGroupDirty) {
-				bindGroup = createBindGroup();
-			}
-			ensureFrameBufferResolution(width, height);
-
-			const scenePass = commandEncoder.beginRenderPass({
-				colorAttachments: [
-					{
-						view: sceneOutput.view,
-						clearValue:
-							sceneOutput === canvasSurface
-								? toPremultipliedCanvasClearValue(clearColor)
-								: toClearValue(clearColor),
-						loadOp: 'clear',
-						storeOp: 'store'
-					}
-				]
-			});
-
-			scenePass.setPipeline(
-				!slots && !presentationRequired && directCanvasPipeline ? directCanvasPipeline : pipeline
-			);
-			scenePass.setBindGroup(0, bindGroup);
-			if (fragmentStorageBindGroup) {
-				scenePass.setBindGroup(1, fragmentStorageBindGroup);
-			}
-			scenePass.draw(3);
-			scenePass.end();
-
-			executePostSceneRenderGraph({
-				device,
-				commandEncoder,
-				graphPlan,
-				slots,
-				sceneOutput,
-				canvasSurface,
-				runtimeTargets,
-				time,
-				delta,
-				width,
-				height,
-				clearColor,
-				presentationRequired,
-				present: (sourceView, canvasView, applyFinalTransform) => {
-					present(commandEncoder, sourceView, canvasView, clearColor, applyFinalTransform);
-				}
-			});
-
-			device.queue.submit([commandEncoder.finish()]);
+			frameState.commit();
 		};
 
 		acceptInitializationCleanups = false;

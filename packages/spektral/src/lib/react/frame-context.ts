@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef } from 'react';
 import { createCurrentWritable } from '../core/current-value.js';
 import { useSpektral } from './spektral-context.js';
 import {
@@ -92,7 +92,9 @@ export function useFrame(
 	}
 
 	const callbackRef = useRef(resolved.callback);
-	callbackRef.current = resolved.callback;
+	useLayoutEffect(() => {
+		callbackRef.current = resolved.callback;
+	}, [resolved.callback]);
 	const registrationConfigRef = useRef<{
 		task: FrameTask;
 		options: UseFrameOptions | undefined;

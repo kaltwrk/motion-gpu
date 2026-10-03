@@ -1,12 +1,12 @@
 import ImageResponse from '@takumi-rs/image-response';
-import apkGaleriaRegularDataUri from '$lib/assets/fonts/APK-Galeria-Regular.woff2?inline';
-import apkGaleriaMediumDataUri from '$lib/assets/fonts/APK-Galeria-Medium.woff2?inline';
-import { brandLogoRaw, brandingConfig } from '$lib';
+import overusedGroteskRegularDataUri from '$lib/assets/fonts/overused-grotesk/OverusedGrotesk-Regular.woff2?inline';
+import overusedGroteskMediumDataUri from '$lib/assets/fonts/overused-grotesk/OverusedGrotesk-Medium.woff2?inline';
+import { siteConfig } from '$lib/site/site';
 import { ogThemeColors, toSvgColor, withAlpha } from '$lib/seo/og-theme';
 
-export const OG_WIDTH = 1200;
-export const OG_HEIGHT = 630;
-export const OG_GRID_INSET = 72;
+const OG_WIDTH = 1200;
+const OG_HEIGHT = 630;
+const OG_GRID_INSET = 72;
 
 const DIVIDER_DASH_LENGTH = 6;
 const DIVIDER_DASH_GAP = 6;
@@ -62,21 +62,21 @@ const dataUriToArrayBuffer = (dataUri: string) => {
 };
 
 const fontDataPromise = Promise.all([
-	Promise.resolve(dataUriToArrayBuffer(apkGaleriaRegularDataUri)),
-	Promise.resolve(dataUriToArrayBuffer(apkGaleriaMediumDataUri))
+	Promise.resolve(dataUriToArrayBuffer(overusedGroteskRegularDataUri)),
+	Promise.resolve(dataUriToArrayBuffer(overusedGroteskMediumDataUri))
 ]);
 
 const takumiFontLoaders = [
 	{
-		key: 'apk-galeria-regular',
-		name: 'APK Galeria',
+		key: 'overused-grotesk-regular',
+		name: 'Overused Grotesk',
 		weight: 400,
 		style: 'normal' as const,
 		data: async () => (await fontDataPromise)[0]
 	},
 	{
-		key: 'apk-galeria-medium',
-		name: 'APK Galeria',
+		key: 'overused-grotesk-medium',
+		name: 'Overused Grotesk',
 		weight: 500,
 		style: 'normal' as const,
 		data: async () => (await fontDataPromise)[1]
@@ -92,7 +92,7 @@ const colors = {
 };
 
 const logoDataUri = `data:image/svg+xml,${encodeURIComponent(
-	brandLogoRaw.replaceAll('currentColor', withAlpha(colors.foreground, 0.58))
+	siteConfig.logoRaw.replaceAll('currentColor', withAlpha(colors.foreground, 0.58))
 )}`;
 
 const verticalDivider = (left: number) =>
@@ -172,7 +172,7 @@ const createComponent = ({
 				overflow: 'hidden',
 				backgroundColor: colors.backgroundInset,
 				color: colors.foreground,
-				fontFamily: 'APK Galeria, sans-serif'
+				fontFamily: 'Overused Grotesk, sans-serif'
 			}
 		},
 		el('div', {
@@ -228,7 +228,7 @@ const createComponent = ({
 						lineHeight: 1
 					}
 				},
-				brandingConfig.name
+				siteConfig.name
 			)
 		),
 		el(

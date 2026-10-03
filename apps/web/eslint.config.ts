@@ -46,19 +46,53 @@ export default defineConfig(
 	}),
 	{
 		...ts.configs.disableTypeChecked,
+		// Keep imported Godsend components and official CLI output unchanged;
+		// svelte-check validates their types with the rest of the application.
+		files: [
+			'src/lib/components/ui/*/**',
+			'src/lib/hooks/**',
+			'src/lib/icons/**',
+			'src/lib/features/docs/**',
+			'src/lib/components/action-tooltip/**',
+			'src/lib/components/code-block/**',
+			'src/lib/components/copy-feedback/**',
+			'src/lib/components/icon-transition/**',
+			'src/lib/components/theme-toggle/**',
+			'src/lib/components/app-sidebar.svelte',
+			'src/lib/components/nav-*.svelte',
+			'src/lib/components/layout/**',
+			'src/lib/site/actions.ts',
+			'src/lib/site/keyboard-shortcuts.ts',
+			'src/lib/utils.ts'
+		],
+		rules: {
+			...ts.configs.disableTypeChecked.rules,
+			'@typescript-eslint/array-type': 'off',
+			'@typescript-eslint/consistent-indexed-object-style': 'off',
+			'@typescript-eslint/no-non-null-assertion': 'off',
+			'@typescript-eslint/no-empty-function': 'off',
+			'svelte/no-navigation-without-resolve': 'off'
+		}
+	},
+	{
+		...ts.configs.disableTypeChecked,
 		files: ['scripts/**/*.mjs']
 	},
 	{
 		ignores: [
 			'src/lib/playground-engine/**',
 			'src/playground-demo-shims.d.ts',
-			'src/routes/playground/demos/**',
-			'src/routes/playground/runtime-template/**'
+			'src/lib/site/demos/**',
+			'src/lib/features/playground/runtime-template/**'
 		]
 	},
 	{
 		...ts.configs.disableTypeChecked,
-		files: ['src/routes/playground/**'],
+		files: [
+			'src/lib/features/playground/**',
+			'src/lib/site/content/playground/index.svelte',
+			'src/routes/playground/**'
+		],
 		rules: {
 			...ts.configs.disableTypeChecked.rules,
 			'@typescript-eslint/array-type': 'off',
@@ -72,6 +106,18 @@ export default defineConfig(
 	},
 	{
 		rules: {
+			'no-restricted-imports': [
+				'error',
+				{
+					patterns: [
+						{
+							group: ['@lucide/*', 'lucide', 'lucide-*', 'lucide-*/**'],
+							message:
+								'Use vendored Nucleo UI Outline 18 icons from $lib/icons. Lucide is not allowed.'
+						}
+					]
+				}
+			],
 			'@typescript-eslint/no-unused-vars': [
 				'error',
 				{

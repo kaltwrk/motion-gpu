@@ -1,70 +1,31 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import Features from '$lib/components/home/Features.svelte';
-	import CTA from '$lib/components/home/CTA.svelte';
-	import Footer from '$lib/components/home/Footer.svelte';
-	import Hero from '$lib/components/home/Hero.svelte';
-	import HowItWorks from '$lib/components/home/HowItWorks.svelte';
-	import FAQ from '$lib/components/home/FAQ.svelte';
-	import Menubar from '$lib/components/home/Menubar.svelte';
-
-	let mainContent = $state<HTMLElement | null>(null);
-	let landingAnimationState = $state<'preparing' | 'ready'>('preparing');
-
-	onMount(() => {
-		let destroyAnimations: () => void = () => undefined;
-		let isActive = true;
-
-		const setupAnimations = async () => {
-			if (!mainContent) {
-				landingAnimationState = 'ready';
-				return;
-			}
-
-			try {
-				const { createLandingScrollAnimations } = await import('$lib/animations/landing');
-				if (!isActive) return;
-				destroyAnimations = createLandingScrollAnimations(mainContent);
-			} finally {
-				if (isActive) {
-					landingAnimationState = 'ready';
-				}
-			}
-		};
-
-		void setupAnimations();
-
-		return () => {
-			isActive = false;
-			destroyAnimations();
-		};
-	});
+	import '$lib/features/landing/landing.css';
+	import { Button } from '$lib/components/ui/button';
+	import LandingHeader from '$lib/features/landing/LandingHeader.svelte';
+	import LandingHero from '$lib/features/landing/LandingHero.svelte';
+	import LandingFeatures from '$lib/features/landing/LandingFeatures.svelte';
+	import LandingPipeline from '$lib/features/landing/LandingPipeline.svelte';
+	import LandingFAQ from '$lib/features/landing/LandingFAQ.svelte';
+	import LandingCTA from '$lib/features/landing/LandingCTA.svelte';
+	import LandingFooter from '$lib/features/landing/LandingFooter.svelte';
 </script>
 
-<a
+<Button
 	href="#main-content"
-	class="focus-ring focus-outline sr-only fixed top-3 left-3 z-100 rounded-sm bg-foreground px-4 py-2 text-sm text-background-inset outline-none focus:not-sr-only"
+	variant="secondary"
+	class="fixed inset-s-3 top-3 z-50 -translate-y-20 focus:translate-y-0"
+	>Skip to main content</Button
 >
-	Skip to main content
-</a>
-
-<Menubar />
-<main
-	id="main-content"
-	bind:this={mainContent}
-	tabindex="-1"
-	data-landing-anim-root
-	data-landing-anim-state={landingAnimationState}
-	class="mx-auto flex min-h-dvh w-full max-w-6xl flex-col items-center justify-center border-(--guide-ink) sm:border-x"
->
-	<Hero />
-	<Features />
-	<HowItWorks />
-	<FAQ />
-	<CTA />
-	<div class="w-full border-t border-(--guide-ink) bg-guide-dashed">
-		<div class="mx-auto w-full max-w-5xl border-x border-(--guide-ink) bg-background">
-			<Footer />
-		</div>
+<div class="landing-page">
+	<LandingHeader />
+	<div class="mx-auto max-w-5xl border-border sm:border-x">
+		<main id="main-content" tabindex="-1">
+			<LandingHero />
+			<LandingFeatures />
+			<LandingPipeline />
+			<LandingFAQ />
+			<LandingCTA />
+		</main>
+		<LandingFooter />
 	</div>
-</main>
+</div>

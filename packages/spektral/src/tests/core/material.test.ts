@@ -419,6 +419,15 @@ describe('material', () => {
 		expect(a.signature).not.toEqual(b.signature);
 	});
 
+	it('distinguishes automatic texture format from an explicit matching format', () => {
+		const fragment = 'fn frag(uv: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }';
+		const automatic = resolveMaterial(defineMaterial({ fragment, textures: { photo: {} } }));
+		const explicit = resolveMaterial(
+			defineMaterial({ fragment, textures: { photo: { format: 'rgba8unorm-srgb' } } })
+		);
+		expect(automatic.signature).not.toEqual(explicit.signature);
+	});
+
 	it('changes signature when texture allocation config changes', () => {
 		const baseFragment = 'fn frag(uv: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }';
 		const rgba8 = resolveMaterial(

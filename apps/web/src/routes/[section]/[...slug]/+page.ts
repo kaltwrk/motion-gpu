@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import { getContentSectionModule, getContentSectionManifest } from '$lib/content/sections';
-import { contentSections } from '$lib/config/navigation';
+import { contentSections } from '$lib/content/sections';
 
 export const prerender = true;
 
@@ -21,10 +21,10 @@ export const entries = () => {
 	return result;
 };
 
-export const load: PageLoad = ({ params }) => {
+export const load: PageLoad = async ({ params }) => {
 	const { section: sectionId, slug } = params;
 
-	const mod = getContentSectionModule(sectionId, slug);
+	const mod = await getContentSectionModule(sectionId, slug);
 	if (!mod) {
 		error(404, 'Page not found');
 	}

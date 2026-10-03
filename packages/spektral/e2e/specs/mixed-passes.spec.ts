@@ -2,18 +2,26 @@ import { expect, test } from '@playwright/test';
 import {
 	expectCanvasHashStable,
 	getCanvasHash,
+	getCanvasPixel,
 	toNumber,
 	waitForCanvasHashChange
 } from './helpers';
 
 test.describe('spektral mixed passes e2e', () => {
-	async function advanceAndWait(page: Parameters<typeof getCanvasHash>[0]): Promise<void> {
+	async function advanceAndWait(
+		page: Parameters<typeof getCanvasHash>[0],
+		controlledClock = false
+	): Promise<void> {
 		const previousFrameCount = toNumber(await page.getByTestId('frame-count').textContent());
 		await page.getByTestId('advance-once').click();
 		await expect
-			.poll(async () => toNumber(await page.getByTestId('frame-count').textContent()), {
-				timeout: 5_000
-			})
+			.poll(
+				async () => {
+					if (controlledClock) await page.clock.runFor(16);
+					return toNumber(await page.getByTestId('frame-count').textContent());
+				},
+				{ timeout: 5_000 }
+			)
 			.toBeGreaterThan(previousFrameCount);
 	}
 
@@ -117,14 +125,21 @@ test.describe('spektral mixed passes e2e', () => {
 		await expect(page.getByTestId('gpu-status')).toHaveText('ready');
 		await expect(page.getByTestId('controls-ready')).toHaveText('yes');
 
+		// Wait for submitted pixels, not task counts: pass compilation is asynchronous.
+		const waitForBlue = async (expected: number): Promise<void> => {
+			await expect
+				.poll(async () => {
+					await advanceAndWait(page);
+					const pixel = await getCanvasPixel(page, 0.5, 0.5);
+					return Math.abs(pixel[2] - expected);
+				})
+				.toBeLessThanOrEqual(2);
+		};
 		// Start with 3 chained passes (red=on, green=off initially for toggle-middle, blue=on)
 		await page.getByTestId('set-config-toggle-middle').click();
 		await expect(page.getByTestId('pass-config')).toHaveText('toggle-middle');
-		await page.getByTestId('advance-once').click();
-
-		await expect
-			.poll(async () => toNumber(await page.getByTestId('frame-count').textContent()))
-			.toBeGreaterThan(0);
+		// Blue is 0.5 * 0.7 + 0.3 = 0.65 linear, about 211 in sRGB.
+		await waitForBlue(211);
 
 		// Hash with green disabled
 		const hashGreenOff = await getCanvasHash(page);
@@ -132,15 +147,16 @@ test.describe('spektral mixed passes e2e', () => {
 
 		// Enable green pass
 		await page.getByTestId('toggle-middle-pass').click();
-		await page.getByTestId('advance-once').click();
+		// The middle pass multiplies blue by another 0.7: 0.545 linear.
+		await waitForBlue(195);
 		const hashGreenOn = await waitForCanvasHashChange(page, hashGreenOff);
 		expect(hashGreenOn).not.toBe(hashGreenOff);
 
 		// Disable green pass again — should return to previous visual
 		await page.getByTestId('toggle-middle-pass').click();
-		await page.getByTestId('advance-once').click();
+		await waitForBlue(211);
 		const hashGreenOff2 = await waitForCanvasHashChange(page, hashGreenOn);
-		expect(hashGreenOff2).not.toBe(hashGreenOn);
+		expect(hashGreenOff2).toBe(hashGreenOff);
 
 		await expect(page.getByTestId('last-error')).toHaveText('none');
 	});
@@ -222,23 +238,26 @@ test.describe('spektral mixed passes e2e', () => {
 	test('repeated identical errors are deduplicated across quick recovery cycles', async ({
 		page
 	}) => {
+		await page.clock.install({ time: '2026-01-01T00:00:00Z' });
 		await page.goto('/?scenario=mixed-passes');
 		await expect(page.getByTestId('gpu-status')).toHaveText('ready');
 		await expect(page.getByTestId('controls-ready')).toHaveText('yes');
 		await expect(page.getByTestId('error-count')).toHaveText('0');
+		// Keep recovery inside the 750 ms grace window regardless of host load.
+		await page.clock.pauseAt('2026-01-01T00:01:00Z');
 
 		// Keep this on the dynamic-pass path. An invalid pass present during
 		// renderer creation is a non-recoverable initialization failure.
-		await advanceAndWait(page);
+		await advanceAndWait(page, true);
 
 		// First active error should be reported once, even if the failing
 		// pass remains active across multiple manual frames.
 		await page.getByTestId('set-config-bad-shader-pass').click();
-		await advanceAndWait(page);
+		await advanceAndWait(page, true);
 		await expect
 			.poll(
 				async () => {
-					await advanceAndWait(page);
+					await advanceAndWait(page, true);
 					return toNumber(await page.getByTestId('error-count').textContent());
 				},
 				{
@@ -247,20 +266,21 @@ test.describe('spektral mixed passes e2e', () => {
 			)
 			.toBe(1);
 
-		await advanceAndWait(page);
-		await advanceAndWait(page);
+		await advanceAndWait(page, true);
+		await advanceAndWait(page, true);
 		await expect(page.getByTestId('error-count')).toHaveText('1');
 
 		const firstErrorCount = toNumber(await page.getByTestId('error-count').textContent());
 
 		// Recover and immediately re-trigger the same failing pass.
 		await page.getByTestId('set-config-single-shader').click();
-		await advanceAndWait(page);
+		await advanceAndWait(page, true);
 		await page.getByTestId('set-config-multi-error').click();
-		await advanceAndWait(page);
+		await advanceAndWait(page, true);
 
 		// With intentional deduplication + grace window, the same error key
 		// should not increment count on an immediate repeat.
+		await page.clock.runFor(200);
 		await expect(page.getByTestId('error-count')).toHaveText(String(firstErrorCount));
 	});
 

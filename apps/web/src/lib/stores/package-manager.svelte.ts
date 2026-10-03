@@ -1,9 +1,10 @@
+import { readPreference, writePreference } from './preferences';
 import { browser } from '$app/environment';
 import {
 	contentUiDefaults,
 	availablePackageManagers,
 	type PackageManagerOption
-} from '$lib/config/content-ui';
+} from '$lib/site/content-ui';
 
 export type PackageManager = PackageManagerOption;
 
@@ -55,7 +56,7 @@ function createPackageManagerStore() {
 		if (bootstrapped) {
 			nextActive = bootstrapped;
 		} else {
-			const stored = localStorage.getItem(contentUiDefaults.packageManager.storageKey);
+			const stored = readPreference(contentUiDefaults.packageManager.storageKey);
 			if (isPackageManager(stored)) {
 				nextActive = stored;
 			}
@@ -72,7 +73,7 @@ function createPackageManagerStore() {
 		set active(v: PackageManager) {
 			active = v;
 			if (browser) {
-				localStorage.setItem(contentUiDefaults.packageManager.storageKey, v);
+				writePreference(contentUiDefaults.packageManager.storageKey, v);
 				syncBootstrapPackageManager(v);
 			}
 		}

@@ -785,6 +785,19 @@ export interface FrameRegistry {
 	clear: () => void;
 }
 
+interface FrameScheduling {
+	hasWork: () => boolean;
+	subscribe: (wake: () => void) => () => void;
+}
+
+// Runtime coordination stays outside the public scheduler API.
+const frameScheduling = new WeakMap<FrameRegistry, FrameScheduling>();
+
+/** @internal */
+export function getFrameScheduling(registry: FrameRegistry): FrameScheduling | undefined {
+	return frameScheduling.get(registry);
+}
+
 /**
  * Creates a frame registry used by `FragCanvas` and `useFrame`.
  *
@@ -833,6 +846,22 @@ export function createFrameRegistry(options?: {
 	maxDelta = assertMaxDelta(maxDelta);
 
 	const stages = new Map<FrameKey, InternalStage>();
+	const wakeListeners = new Set<() => void>();
+	const hasScheduledWork = (): boolean => {
+		for (const stage of stages.values()) {
+			if (!stage.started) continue;
+			if (stage.callback !== DEFAULT_STAGE_CALLBACK) return true;
+			for (const task of stage.tasks.values()) {
+				// Dynamic running predicates must still be checked on later frames.
+				if (task.started) return true;
+			}
+		}
+		return false;
+	};
+	const wakeScheduler = (): void => {
+		if (!hasScheduledWork()) return;
+		for (const wake of wakeListeners) wake();
+	};
 	let scheduleDirty = true;
 	let sortedStages: InternalStage[] = [];
 	const sortedTasksByStage = new Map<FrameKey, InternalTask[]>();
@@ -1083,7 +1112,7 @@ export function createFrameRegistry(options?: {
 		}
 	};
 
-	return {
+	const registry: FrameRegistry = {
 		register(keyOrCallback, callbackOrOptions, maybeOptions) {
 			const key =
 				typeof keyOrCallback === 'function'
@@ -1138,10 +1167,12 @@ export function createFrameRegistry(options?: {
 			}
 			markScheduleDirty();
 			internalTask.startedStoreSet(resolveEffectiveRunning(internalTask));
+			wakeScheduler();
 
 			const start = () => {
 				internalTask.started = true;
 				resolveEffectiveRunning(internalTask);
+				if (stage.tasks.get(key) === internalTask) wakeScheduler();
 			};
 
 			const stop = () => {
@@ -1360,6 +1391,7 @@ export function createFrameRegistry(options?: {
 					}
 				: undefined;
 			const stage = ensureStage(key, stageOptions);
+			wakeScheduler();
 			return { key: stage.key };
 		},
 		getStage(key) {
@@ -1376,4 +1408,14 @@ export function createFrameRegistry(options?: {
 			markScheduleDirty();
 		}
 	};
+	frameScheduling.set(registry, {
+		hasWork: hasScheduledWork,
+		subscribe: (wake) => {
+			wakeListeners.add(wake);
+			return () => {
+				wakeListeners.delete(wake);
+			};
+		}
+	});
+	return registry;
 }

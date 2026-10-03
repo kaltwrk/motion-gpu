@@ -1,7 +1,11 @@
 import { resolveTextureFormatCapabilities } from '../core/format-capabilities.js';
 import { preprocessMaterialFragment, type MaterialLineMap } from '../core/material-preprocess.js';
 import type { MaterialDefines, MaterialIncludes } from '../core/material.js';
-import { managedPassBrand } from '../core/pass-brand.js';
+import {
+	managedPassBrand,
+	selectFeedbackOwner,
+	type FeedbackOwnerState
+} from '../core/pass-brand.js';
 import { assertUniformName } from '../core/uniforms.js';
 
 const FRAGMENT_FUNCTION_SIGNATURE_PATTERN =
@@ -199,8 +203,8 @@ export class PingPongShaderPass {
 	private addressModeV: GPUAddressMode;
 	private iterations: number;
 	private clearColor: [number, number, number, number];
-	private totalIterations = 0;
-	private resetPending = true;
+	private state = { totalIterations: 0, resetPending: true };
+	private ownerStates = new WeakMap<object, typeof this.state>();
 
 	constructor(options: PingPongShaderPassOptions) {
 		assertUniformName(options.target);
@@ -291,33 +295,44 @@ export class PingPongShaderPass {
 		if (clearColor) {
 			this.clearColor = cloneColor(clearColor);
 		}
-		this.totalIterations = 0;
-		this.resetPending = true;
+		this.state = { totalIterations: 0, resetPending: true };
+		this.ownerStates = new WeakMap();
+	}
+
+	/** @internal The texture-pair identity also resets state after reallocation. */
+	[selectFeedbackOwner](owner: object): FeedbackOwnerState {
+		let state = this.ownerStates.get(owner);
+		if (!state) {
+			state = { totalIterations: 0, resetPending: true };
+			this.ownerStates.set(owner, state);
+		}
+		this.state = state;
+		return state;
 	}
 
 	/**
 	 * Returns and clears the pending reset color for renderer use.
 	 */
 	consumeResetColor(): [number, number, number, number] | null {
-		if (!this.resetPending) {
+		if (!this.state.resetPending) {
 			return null;
 		}
-		this.resetPending = false;
+		this.state.resetPending = false;
 		return cloneColor(this.clearColor);
 	}
 
 	/**
-	 * Returns the texture key holding the latest result.
+	 * Returns the texture key holding the latest result for the last rendered owner.
 	 */
 	getCurrentOutput(): string {
-		return this.totalIterations % 2 === 0 ? `${this.target}A` : `${this.target}B`;
+		return this.state.totalIterations % 2 === 0 ? `${this.target}A` : `${this.target}B`;
 	}
 
 	/**
 	 * Advances the iteration accumulator by the current iteration count.
 	 */
 	advanceFrame(): void {
-		this.totalIterations += this.iterations;
+		this.state.totalIterations += this.iterations;
 	}
 
 	resolveSize(canvasSize: { width: number; height: number }): { width: number; height: number } {

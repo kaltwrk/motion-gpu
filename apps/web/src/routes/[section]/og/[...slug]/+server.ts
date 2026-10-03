@@ -6,7 +6,8 @@ import {
 	getContentSectionByPathname,
 	getContentSectionManifest
 } from '$lib/content/sections';
-import { contentSections } from '$lib/config/navigation';
+import { contentSections } from '$lib/content/sections';
+import { siteConfig } from '$lib/site/site';
 
 export const prerender = true;
 
@@ -45,13 +46,13 @@ export const GET: RequestHandler = ({ params }) => {
 	if (!section) error(404, 'Section not found');
 
 	const rawSlug = params.slug.replace(/^\/+|\/+$/g, '');
-	const slug = rawSlug === '' || rawSlug === 'index' || rawSlug === sectionParam ? '' : rawSlug;
+	const slug = rawSlug === '' || rawSlug === 'index' ? '' : rawSlug;
 	const metadata = getContentSectionMetadata(section.id, `/${section.id}/${slug}`);
 	if (!metadata) error(404, 'Document not found');
 
 	const title = clampText(metadata.title, MAX_TITLE_LENGTH);
 	const description = clampText(
-		metadata.description ?? `${section.label} documentation.`,
+		metadata.description ?? siteConfig.description,
 		MAX_DESCRIPTION_LENGTH
 	);
 

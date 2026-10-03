@@ -3,6 +3,14 @@ export const managedPassBrand: unique symbol = Symbol('Spektral managed pass');
 
 export type ManagedPassKind = 'compute' | 'feedback';
 
+export interface FeedbackOwnerState {
+	totalIterations: number;
+	resetPending: boolean;
+}
+
+/** Internal selection of feedback state owned by a renderer's texture pair. */
+export const selectFeedbackOwner: unique symbol = Symbol('Spektral select feedback owner');
+
 /** Internal nominal marker for built-in render passes with a known WGSL format contract. */
 export const builtInRenderPassBrand: unique symbol = Symbol('Spektral built-in render pass');
 
