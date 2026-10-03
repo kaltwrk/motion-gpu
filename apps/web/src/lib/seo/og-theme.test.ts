@@ -17,10 +17,10 @@ import {
 } from './og-theme';
 
 describe('OG theme colors', () => {
-	it('resolves nested CSS token references for both themes', () => {
-		expect(ogThemeColors.light.backgroundInset).toBe('oklch(1 0 0)');
-		expect(ogThemeColors.dark.backgroundInset).toBe('oklch(0.19 0.006 285.885)');
-		expect(ogThemeColors.dark.accent).toBe('oklch(0.5772 0.205 278.37)');
+	it('resolves the site CSS tokens for both themes', () => {
+		expect(ogThemeColors.light.backgroundInset).toBe('oklch(100% 0 0)');
+		expect(ogThemeColors.dark.backgroundInset).toBe('oklch(19% 0.005 262)');
+		expect(ogThemeColors.dark.accent).toBe('oklch(57% 0.205 262.272)');
 	});
 
 	it('keeps browser chrome colors synchronized with inset surfaces', () => {
