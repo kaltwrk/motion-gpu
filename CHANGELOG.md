@@ -5,11 +5,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Increase the bundle regression allowance from 5% to 7.5%, retaining the additional 1 KiB absolute-growth threshold and the existing baseline.
+
 ### Performance
+
+- Prepare managed compute and fragment-feedback pipelines asynchronously when the host supplies a readiness callback. Frames wait for every managed pipeline and its validation before submission; bounded caches retain working variants, stale completions cannot wake removed owners, and direct renderer hosts without a callback keep synchronous behavior.
+
+- Validate cached compute-graph resource access in linear time by recording the distinct pass count during planning. Repeated pass instances and changed physical resource identities still invalidate the cache correctly.
+
+- Limit fragmented uniform uploads to eight partial writes, falling back to one full upload when that budget is exceeded. Dirty-range detection now merges ranges in one scan and allocates nothing for unchanged data.
+
+- Cache renderer signatures and managed-pass pipeline keys while shader inputs remain unchanged. Steady frames avoid serializing full WGSL and rebuilding feedback binding descriptors; mutable device/color options, resource topology changes, and storage-data revisions still invalidate the appropriate cache.
+
+- Cache mipmap views and bind groups for each GPU texture allocation. Repeated dynamic uploads now reuse one view per mip level and create no additional mipmap bindings after warmup; resized uploads receive a separate cache.
+
+- Reuse scene and fragment-feedback bind groups across alternating texture views. Each pipeline and frame-buffer pair retains at most two resource combinations, and chained feedback updates rebuild the scene binding only after the final output is known.
+
+- Allocate the postprocessing target only when a pass reads or swaps it. Direct source-to-canvas passes now use two full-size intermediates instead of three; unused targets are released after a successful submission.
 
 - Read storage-buffer initial data once during renderer creation, reducing defensive copies from three to one. A 16 MiB upload now copies 16 MiB instead of 48 MiB while preserving material isolation.
 
 ### Fixed
+
+- Fixed unrelated React parent renders waking an idle canvas through newly allocated default pass, target, and clear-color props. Each canvas now retains its own stable defaults while explicit prop changes still wake the runtime.
+
+- Fixed the performance harness keeping on-demand rendering awake through its own frame counter. Idle probes now observe RAF callbacks without scheduling work. The real-renderer suite also checks steady-state allocation counts for odd/even feedback and dynamic mipmaps on the GPU.
 
 - Fixed canvas width and height being swapped under vertical CSS writing modes. Resize observation now uses physical content-box dimensions without additional layout reads.
 

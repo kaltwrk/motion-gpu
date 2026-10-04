@@ -1,4 +1,10 @@
-import { ActivePipelineCache } from './renderer/pipeline-cache.js';
+import { createShaderPipelineDiagnosticError } from './pipeline-diagnostics.js';
+import { TextureBindGroupCache } from './renderer/texture-bind-groups.js';
+import {
+	ActivePipelineCache,
+	AsyncPipelineCache,
+	PipelineKeyCache
+} from './renderer/pipeline-cache.js';
 import { FrameStateTransaction } from './renderer/frame-state.js';
 import { buildRenderTargetSignature, resolveRenderTargetDefinitions } from './render-targets.js';
 import {
@@ -950,7 +956,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			computeSource: string;
 			topologyKey: string;
 		}
-		// Per-source cache state. The renderer resolves the compute source for
+		// Synchronous fallback for hosts without a readiness callback. The renderer resolves the compute source for
 		// each pass once per frame and looks it up here. The state machine
 		// preserves the synchronous render contract while still surfacing the
 		// rich asynchronously-discovered diagnostics from getCompilationInfo()
@@ -978,6 +984,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		let nextComputePipelineLabelIndex = 0;
 		const computeResourceLimits = getComputeResourceResolverLimits(device);
 		const computeResourceResolutionCache = createComputePassResourceResolutionCache();
+		const pipelineKeys = new PipelineKeyCache();
 		const computeUniformTopologyKey = options.uniformLayout.entries
 			.map((entry) => `${entry.name}:${entry.type}`)
 			.join(',');
@@ -988,14 +995,15 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 
 		const requestRender = options.requestRender;
 
-		const computeBuildResult = (
-			cacheKey: string,
-			buildOptions: {
-				computeSource: string;
-				workgroupSize: [number, number, number];
-				resources: ResolvedComputePassResources;
-			}
-		): ComputePipelineCacheState => {
+		interface ComputeBuildOptions {
+			computeSource: string;
+			workgroupSize: [number, number, number];
+			resources: ResolvedComputePassResources;
+		}
+		const createComputePipelineBuild = (
+			buildOptions: ComputeBuildOptions,
+			asynchronous: boolean
+		) => {
 			const builtComputeShader = buildComputeShaderSourceWithMap({
 				compute: buildOptions.computeSource,
 				uniformLayout: options.uniformLayout,
@@ -1041,26 +1049,39 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				bindGroupLayouts
 			});
 
+			// Build uniform bind group for compute (group 0)
+			const computeUniformBindGroup = device.createBindGroup({
+				label: `${labelBase}:bg-uniforms`,
+				layout: computeUniformBGL,
+				entries: [
+					{ binding: FRAME_BINDING, resource: { buffer: frameBuffer } },
+					{ binding: UNIFORM_BINDING, resource: { buffer: uniformBuffer } }
+				]
+			});
+
 			// Wrap the validation-prone calls in an error scope so the parser
 			// error and "invalid module/pipeline" cascade are captured here
 			// instead of leaking to `uncapturederror`. The popped scope is
 			// awaited together with `getCompilationInfo()` below.
 			device.pushErrorScope('validation');
 			let computeShaderModule: GPUShaderModule;
-			let pipeline: GPUComputePipeline;
+			let pipeline: GPUComputePipeline | Promise<GPUComputePipeline>;
 			try {
 				computeShaderModule = device.createShaderModule({
 					label: moduleLabel,
 					code: builtComputeShader.code
 				});
-				pipeline = device.createComputePipeline({
+				const descriptor: GPUComputePipelineDescriptor = {
 					label: pipelineLabel,
 					layout: computePipelineLayout,
 					compute: {
 						module: computeShaderModule,
 						entryPoint: 'compute'
 					}
-				});
+				};
+				pipeline = asynchronous
+					? device.createComputePipelineAsync(descriptor)
+					: device.createComputePipeline(descriptor);
 			} catch (jsError) {
 				// Always pop the scope even when the synchronous call threw,
 				// otherwise the scope would leak. Real WebGPU implementations
@@ -1077,23 +1098,12 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					computeSource: buildOptions.computeSource,
 					runtimeContext
 				});
-				return { kind: 'error', error };
+				throw error;
 			}
 
 			const validationScope = device.popErrorScope();
 
-			// Build uniform bind group for compute (group 0)
-			const computeUniformBindGroup = device.createBindGroup({
-				label: `${labelBase}:bg-uniforms`,
-				layout: computeUniformBGL,
-				entries: [
-					{ binding: FRAME_BINDING, resource: { buffer: frameBuffer } },
-					{ binding: UNIFORM_BINDING, resource: { buffer: uniformBuffer } }
-				]
-			});
-
-			const entry: ComputePipelineEntry = {
-				pipeline,
+			const entry: Omit<ComputePipelineEntry, 'pipeline'> = {
 				uniformBindGroup: computeUniformBindGroup,
 				resourceBindGroupLayout,
 				resourceBindGroupCaches: new WeakMap(),
@@ -1103,6 +1113,24 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				topologyKey: buildOptions.resources.topologyKey
 			};
 
+			return { entry, pipeline, computeShaderModule, validationScope, builtComputeShader };
+		};
+
+		const computeBuildResult = (
+			cacheKey: string,
+			buildOptions: ComputeBuildOptions
+		): ComputePipelineCacheState => {
+			let build: ReturnType<typeof createComputePipelineBuild>;
+			try {
+				build = createComputePipelineBuild(buildOptions, false);
+			} catch (error) {
+				return { kind: 'error', error: error instanceof Error ? error : new Error(String(error)) };
+			}
+			const { computeShaderModule, validationScope, builtComputeShader } = build;
+			const entry: ComputePipelineEntry = {
+				...build.entry,
+				pipeline: build.pipeline as GPUComputePipeline
+			};
 			const validation = (async () => {
 				const compilationError = await assertComputeCompilationAsync({
 					module: computeShaderModule,
@@ -1141,6 +1169,42 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			return { kind: 'pending', entry, validation };
 		};
 
+		const prepareComputePipeline = async (
+			buildOptions: ComputeBuildOptions
+		): Promise<ComputePipelineEntry> => {
+			await Promise.resolve();
+			if (isDestroyed) throw new Error('Renderer was destroyed before pipeline preparation.');
+			const build = createComputePipelineBuild(buildOptions, true);
+			const [pipelineResult, validationResult] = await Promise.allSettled([
+				Promise.resolve(build.pipeline),
+				assertComputeCompilationAsync({
+					module: build.computeShaderModule,
+					validationScope: build.validationScope,
+					lineMap: build.builtComputeShader.lineMap,
+					computeSource: buildOptions.computeSource,
+					runtimeContext
+				})
+			]);
+			if (validationResult.status === 'rejected') throw validationResult.reason;
+			if (validationResult.value) throw validationResult.value;
+			if (pipelineResult.status === 'rejected')
+				throw toComputeCompilationError({
+					error: pipelineResult.reason,
+					lineMap: build.builtComputeShader.lineMap,
+					computeSource: buildOptions.computeSource,
+					runtimeContext
+				});
+			return { ...build.entry, pipeline: pipelineResult.value };
+		};
+		// Direct renderer consumers without a readiness callback retain synchronous rendering.
+		const prepareManagedPipelines =
+			options.requestRender !== undefined &&
+			typeof device.createComputePipelineAsync === 'function' &&
+			typeof device.createRenderPipelineAsync === 'function';
+		const asyncComputePipelines = new AsyncPipelineCache<ComputePipelineEntry>(32, () =>
+			options.requestRender?.()
+		);
+
 		const buildComputePipelineEntry = (
 			pass: ComputePassLike,
 			buildOptions: {
@@ -1148,8 +1212,19 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				workgroupSize: [number, number, number];
 				resources: ResolvedComputePassResources;
 			}
-		): ComputePipelineEntry => {
-			const cacheKey = `compute:${computeUniformTopologyKey}:${buildOptions.resources.topologyKey}:${computeDeviceCapabilityKey}:${buildOptions.workgroupSize.join(',')}:${buildOptions.computeSource}`;
+		): ComputePipelineEntry | null => {
+			const cacheKey = pipelineKeys.get(pass, [
+				'compute',
+				computeUniformTopologyKey,
+				buildOptions.resources.topologyKey,
+				computeDeviceCapabilityKey,
+				...buildOptions.workgroupSize,
+				buildOptions.computeSource
+			]);
+			if (prepareManagedPipelines)
+				return asyncComputePipelines.get(pass, cacheKey, () =>
+					prepareComputePipeline(buildOptions)
+				);
 			const cached = computePipelineCache.use(pass, cacheKey);
 			if (cached) {
 				if (cached.kind === 'error') {
@@ -1175,7 +1250,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			pipeline: GPURenderPipeline;
 			bindGroupLayout: GPUBindGroupLayout;
 			previousBindGroupLayout: GPUBindGroupLayout;
-			textureKeys: string[];
+			textureBindings: RuntimeTextureBinding[];
 		}
 		const pingPongShaderPipelineCache = new ActivePipelineCache<PingPongShaderPipelineEntry>(32);
 
@@ -1191,11 +1266,15 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				};
 			});
 
-		const buildPingPongShaderPipelineEntry = (
-			pass: PingPongShaderPassLike,
-			format: GPUTextureFormat,
-			target: string
-		): PingPongShaderPipelineEntry => {
+		interface FeedbackBuildOptions {
+			fragment: string;
+			fragmentLineMap: ReturnType<PingPongShaderPassLike['getFragmentLineMap']>;
+			format: GPUTextureFormat;
+			target: string;
+			filter: GPUFilterMode;
+		}
+		const createFeedbackPipelineBuild = (input: FeedbackBuildOptions, asynchronous: boolean) => {
+			const { fragment, fragmentLineMap, format, target, filter } = input;
 			assertFloatSampledFormat({
 				format,
 				target,
@@ -1208,86 +1287,162 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				pass: 'PingPongShaderPass',
 				deviceFeatures: device.features
 			});
-			const fragment = pass.getFragment();
-			if (!fragment) {
-				throw new Error('PingPongShaderPass must provide a fragment shader.');
-			}
-
 			const feedbackTextureKeys = fragmentTextureKeys.filter((key) => key !== target);
 			const previousSamplingLayout = resolveTextureSamplingLayout({
 				format,
-				filter: pass.getFilter(),
+				filter,
 				deviceFeatures: device.features
 			});
-			const cacheKey = [
-				format,
-				target,
-				previousSamplingLayout.sampleType,
-				previousSamplingLayout.samplerType,
-				previousSamplingLayout.effectiveFilter,
-				feedbackTextureKeys.join(','),
-				options.uniformLayout.entries.map((entry) => `${entry.name}:${entry.type}`).join(','),
-				fragment
-			].join('|');
-			const cached = pingPongShaderPipelineCache.use(pass, cacheKey);
-			if (cached) {
-				return cached;
-			}
 
-			const fragmentLineMap = pass.getFragmentLineMap();
 			const builtShader = buildPingPongShaderSourceWithMap(
 				fragment,
 				options.uniformLayout,
 				feedbackTextureKeys,
 				{ fragmentLineMap }
 			);
-			const shaderModule = device.createShaderModule({ code: builtShader.code });
-			const feedbackBindGroupLayout = device.createBindGroupLayout({
-				entries: createBindGroupLayoutEntries(
-					getFragmentTextureBindingsForKeys(feedbackTextureKeys)
-				)
-			});
-			const previousBindGroupLayout = device.createBindGroupLayout({
-				entries: [
-					{
-						binding: 0,
-						visibility: GPUShaderStage.FRAGMENT,
-						sampler: { type: previousSamplingLayout.samplerType }
-					},
-					{
-						binding: 1,
-						visibility: GPUShaderStage.FRAGMENT,
-						texture: {
-							sampleType: previousSamplingLayout.sampleType,
-							viewDimension: '2d',
-							multisampled: false
+			if (asynchronous) device.pushErrorScope('validation');
+			try {
+				const shaderModule = device.createShaderModule({ code: builtShader.code });
+				const feedbackBindings = getFragmentTextureBindingsForKeys(feedbackTextureKeys);
+				const feedbackBindGroupLayout = device.createBindGroupLayout({
+					entries: createBindGroupLayoutEntries(feedbackBindings)
+				});
+				const previousBindGroupLayout = device.createBindGroupLayout({
+					entries: [
+						{
+							binding: 0,
+							visibility: GPUShaderStage.FRAGMENT,
+							sampler: { type: previousSamplingLayout.samplerType }
+						},
+						{
+							binding: 1,
+							visibility: GPUShaderStage.FRAGMENT,
+							texture: {
+								sampleType: previousSamplingLayout.sampleType,
+								viewDimension: '2d',
+								multisampled: false
+							}
 						}
+					]
+				});
+				const pipelineLayout = device.createPipelineLayout({
+					bindGroupLayouts: [feedbackBindGroupLayout, previousBindGroupLayout]
+				});
+				const descriptor: GPURenderPipelineDescriptor = {
+					layout: pipelineLayout,
+					vertex: {
+						module: shaderModule,
+						entryPoint: 'spektralPingPongVertex'
+					},
+					fragment: {
+						module: shaderModule,
+						entryPoint: 'spektralPingPongFragment',
+						targets: [{ format }]
+					},
+					primitive: {
+						topology: 'triangle-list'
 					}
-				]
-			});
-			const pipelineLayout = device.createPipelineLayout({
-				bindGroupLayouts: [feedbackBindGroupLayout, previousBindGroupLayout]
-			});
-			const pipeline = device.createRenderPipeline({
-				layout: pipelineLayout,
-				vertex: {
-					module: shaderModule,
-					entryPoint: 'spektralPingPongVertex'
-				},
-				fragment: {
-					module: shaderModule,
-					entryPoint: 'spektralPingPongFragment',
-					targets: [{ format }]
-				},
-				primitive: {
-					topology: 'triangle-list'
-				}
-			});
-			const entry = {
-				pipeline,
-				bindGroupLayout: feedbackBindGroupLayout,
-				previousBindGroupLayout,
-				textureKeys: feedbackTextureKeys
+				};
+				const pipeline = asynchronous
+					? device.createRenderPipelineAsync(descriptor)
+					: device.createRenderPipeline(descriptor);
+				const entry = {
+					bindGroupLayout: feedbackBindGroupLayout,
+					previousBindGroupLayout,
+					textureBindings: feedbackBindings
+				};
+				return {
+					entry,
+					pipeline,
+					shaderModule,
+					builtShader,
+					validationScope: asynchronous ? device.popErrorScope() : Promise.resolve(null)
+				};
+			} catch (error) {
+				if (asynchronous) void device.popErrorScope().catch(() => {});
+				throw error;
+			}
+		};
+
+		const prepareFeedbackPipeline = async (
+			input: FeedbackBuildOptions
+		): Promise<PingPongShaderPipelineEntry> => {
+			await Promise.resolve();
+			if (isDestroyed) throw new Error('Renderer was destroyed before pipeline preparation.');
+			const build = createFeedbackPipelineBuild(input, true);
+			const [pipelineResult, diagnostics, scope] = await Promise.allSettled([
+				Promise.resolve(build.pipeline),
+				assertCompilation(build.shaderModule, {
+					lineMap: build.builtShader.lineMap,
+					fragmentSource: input.fragment,
+					runtimeContext,
+					errorPrefix: 'PingPongShaderPass shader compilation failed'
+				}),
+				build.validationScope
+			]);
+			if (diagnostics.status === 'rejected') throw diagnostics.reason;
+			const error =
+				scope.status === 'fulfilled' && scope.value
+					? scope.value
+					: pipelineResult.status === 'rejected'
+						? pipelineResult.reason
+						: null;
+			if (error)
+				throw createShaderPipelineDiagnosticError({
+					diagnostics: [
+						{
+							generatedLine: 0,
+							message: String((error as { message?: string }).message ?? error),
+							sourceLocation: null
+						}
+					],
+					source: {
+						lineMap: build.builtShader.lineMap,
+						fragmentSource: input.fragment,
+						includeSources: {},
+						materialSource: null,
+						runtimeContext
+					},
+					errorPrefix: 'PingPongShaderPass pipeline compilation failed',
+					shaderStage: 'fragment'
+				});
+			if (pipelineResult.status === 'rejected') throw pipelineResult.reason;
+			return { ...build.entry, pipeline: pipelineResult.value };
+		};
+		const asyncFeedbackPipelines = new AsyncPipelineCache<PingPongShaderPipelineEntry>(32, () =>
+			options.requestRender?.()
+		);
+		const frameComputePipelines = new Map<ComputePassLike, ComputePipelineEntry>();
+		const frameFeedbackPipelines = new Map<PingPongShaderPassLike, PingPongShaderPipelineEntry>();
+
+		const buildPingPongShaderPipelineEntry = (
+			pass: PingPongShaderPassLike,
+			format: GPUTextureFormat,
+			target: string
+		): PingPongShaderPipelineEntry | null => {
+			const fragment = pass.getFragment();
+			if (!fragment) throw new Error('PingPongShaderPass must provide a fragment shader.');
+			const filter = pass.getFilter();
+			const cacheKey = pipelineKeys.get(pass, ['feedback', format, target, filter, fragment]);
+			if (prepareManagedPipelines)
+				return asyncFeedbackPipelines.get(pass, cacheKey, () =>
+					prepareFeedbackPipeline({
+						fragment,
+						fragmentLineMap: pass.getFragmentLineMap(),
+						format,
+						target,
+						filter
+					})
+				);
+			const cached = pingPongShaderPipelineCache.use(pass, cacheKey);
+			if (cached) return cached;
+			const build = createFeedbackPipelineBuild(
+				{ fragment, fragmentLineMap: pass.getFragmentLineMap(), format, target, filter },
+				false
+			);
+			const entry: PingPongShaderPipelineEntry = {
+				...build.entry,
+				pipeline: build.pipeline as GPURenderPipeline
 			};
 			pingPongShaderPipelineCache.set(cacheKey, entry);
 			return entry;
@@ -1497,47 +1652,19 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			);
 		};
 
-		/**
-		 * Rebuilds a fragment bind group using current texture views.
-		 */
-		const createTextureBindGroup = (
-			layout: GPUBindGroupLayout,
-			bindings: RuntimeTextureBinding[],
-			frameUniformBuffer = frameBuffer
-		): GPUBindGroup => {
-			const entries: GPUBindGroupEntry[] = [
-				{ binding: FRAME_BINDING, resource: { buffer: frameUniformBuffer } },
-				{ binding: UNIFORM_BINDING, resource: { buffer: uniformBuffer } }
-			];
-
-			for (const binding of bindings) {
-				entries.push({
-					binding: binding.samplerBinding,
-					resource: binding.sampler
-				});
-				entries.push({
-					binding: binding.textureBinding,
-					resource: binding.resource.publishedView
-				});
-			}
-
-			return device.createBindGroup({
-				layout,
-				entries
-			});
-		};
-
+		const textureBindGroups = new TextureBindGroupCache(device);
 		const createBindGroup = (): GPUBindGroup =>
-			createTextureBindGroup(bindGroupLayout, fragmentTextureBindings);
+			textureBindGroups.get(bindGroupLayout, frameBuffer, uniformBuffer, fragmentTextureBindings);
 
 		const createPingPongShaderBindGroup = (
 			entry: PingPongShaderPipelineEntry,
 			frameUniformBuffer: GPUBuffer
 		): GPUBindGroup =>
-			createTextureBindGroup(
+			textureBindGroups.get(
 				entry.bindGroupLayout,
-				getFragmentTextureBindingsForKeys(entry.textureKeys),
-				frameUniformBuffer
+				frameUniformBuffer,
+				uniformBuffer,
+				entry.textureBindings
 			);
 
 		const attachFeedbackTextureBinding = (
@@ -1764,6 +1891,8 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		let sourceTextureBindingsDirty = false;
 		let sourceSlotTarget: RuntimeRenderTarget | null = null;
 		let targetSlotTarget: RuntimeRenderTarget | null = null;
+		let targetSlotUsed = false;
+		let frameTarget: RenderTarget | null = null;
 		let presentationSlotTarget: RuntimeRenderTarget | null = null;
 		let presentationTargetUsed = false;
 		let renderTargetSignature = '';
@@ -1812,7 +1941,16 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		 */
 		const frameSlots = {
 			source: null as unknown as RuntimeRenderTarget,
-			target: null as unknown as RuntimeRenderTarget,
+			get target(): RenderTarget {
+				if (!frameTarget) {
+					targetSlotUsed = true;
+					frameTarget = ensureSlotTarget('target', canvasSurface.width, canvasSurface.height);
+				}
+				return frameTarget;
+			},
+			set target(target: RenderTarget) {
+				frameTarget = target;
+			},
 			get canvas(): RenderTarget {
 				return ensurePresentationTarget(canvasSurface.width, canvasSurface.height);
 			}
@@ -2361,12 +2499,19 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				generateDirtyTextureMipmaps(commandEncoder, frameState);
 				const clearColor = options.getClearColor();
 				syncPassLifecycle(passes, width, height);
-				computePipelineCache.retainOwners(
-					passes.filter((pass) => pass.enabled !== false && isManagedComputePass(pass))
+				const computeOwners = passes.filter(
+					(pass) => pass.enabled !== false && isManagedComputePass(pass)
 				);
-				pingPongShaderPipelineCache.retainOwners(
-					passes.filter((pass) => pass.enabled !== false && isManagedFeedbackPass(pass))
+				const feedbackOwners = passes.filter(
+					(pass) => pass.enabled !== false && isManagedFeedbackPass(pass)
 				);
+				if (prepareManagedPipelines) {
+					asyncComputePipelines.retainOwners(computeOwners);
+					asyncFeedbackPipelines.retainOwners(feedbackOwners);
+				} else {
+					computePipelineCache.retainOwners(computeOwners);
+					pingPongShaderPipelineCache.retainOwners(feedbackOwners);
+				}
 				if (syncPingPongComputeTextureLifecycle(passes)) bindGroupDirty = true;
 				syncPingPongShaderTextureLifecycle(passes);
 				if (bindGroupDirty) {
@@ -2461,6 +2606,37 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 						options.graphUpdater?.setSnapshot(graphSnapshotBuilder.build(graphPlan));
 					}
 				}
+				frameComputePipelines.clear();
+				frameFeedbackPipelines.clear();
+				if (prepareManagedPipelines) {
+					let ready = true;
+					for (const step of graphPlan.preSceneSteps) {
+						if (isManagedComputePass(step.pass)) {
+							const resources = resolvedComputeResourcesByPass.get(step.pass)!;
+							const entry = buildComputePipelineEntry(step.pass, {
+								computeSource: step.pass.getCompute(),
+								workgroupSize: step.pass.getWorkgroupSize(),
+								resources
+							});
+							if (entry) frameComputePipelines.set(step.pass, entry);
+							else ready = false;
+						} else if (isManagedFeedbackPass(step.pass)) {
+							const entry = buildPingPongShaderPipelineEntry(
+								step.pass,
+								step.pass.getFormat(),
+								step.pass.getTarget()
+							);
+							if (entry) frameFeedbackPipelines.set(step.pass, entry);
+							else ready = false;
+						}
+					}
+					if (!ready) {
+						frameState.rollback();
+						bindGroup = committedBindGroup;
+						return;
+					}
+				}
+
 				const canvasTexture = context.getCurrentTexture();
 				// Mutate the pre-allocated surface object rather than allocating a new one.
 				canvasSurface.texture = canvasTexture;
@@ -2472,13 +2648,14 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				const presentationRequired = colorPipeline.requiresPresentationPass;
 				const graphHasRenderSteps = graphPlan.renderSteps.length > 0;
 				presentationTargetUsed = false;
+				targetSlotUsed = false;
+				frameTarget = null;
 				const presentationSurface =
 					presentationRequired && !graphHasRenderSteps
 						? ensurePresentationTarget(width, height)
 						: null;
 				if (graphHasRenderSteps) {
 					frameSlots.source = ensureSlotTarget('source', width, height);
-					frameSlots.target = ensureSlotTarget('target', width, height);
 				}
 				const slots = graphHasRenderSteps ? frameSlots : null;
 				const sceneOutput = slots ? slots.source : (presentationSurface ?? canvasSurface);
@@ -2512,7 +2689,6 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 							throw new Error(`${computeStepLabel} has an invalid managed pass contract.`);
 						}
 						const computePass = step.pass;
-						const computeSource = computePass.getCompute();
 						const resources = resolvedComputeResourcesByPass.get(step.pass);
 						if (!resources) throw new Error(`${computeStepLabel} is missing resolved resources.`);
 						const pingPongRead = resources.entries.find(
@@ -2539,12 +2715,14 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 							pingPongPair = ensurePingPongTexturePair(computePass, pingPongRead.logicalId);
 							frameState.capture(pingPongPair);
 						}
-						const workgroupSize = computePass.getWorkgroupSize();
-						const pipelineEntry = buildComputePipelineEntry(computePass, {
-							computeSource,
-							workgroupSize,
-							resources
-						});
+						const pipelineEntry =
+							frameComputePipelines.get(computePass) ??
+							buildComputePipelineEntry(computePass, {
+								computeSource: computePass.getCompute(),
+								workgroupSize: computePass.getWorkgroupSize(),
+								resources
+							});
+						if (!pipelineEntry) throw new Error('Compute pipeline preparation is incomplete.');
 						const resourceBindGroup = pingPongPair
 							? null
 							: getComputeResourceBindGroup(pipelineEntry, computePass, resources);
@@ -2564,7 +2742,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 									height,
 									time,
 									delta,
-									workgroupSize
+									workgroupSize: pipelineEntry.workgroupSize
 								}),
 								maxComputeWorkgroupsPerDimension,
 								dispatchLabel
@@ -2682,7 +2860,10 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 						addressModeU: feedbackPass.getAddressModeU(),
 						addressModeV: feedbackPass.getAddressModeV()
 					});
-					const pipelineEntry = buildPingPongShaderPipelineEntry(feedbackPass, pair.format, target);
+					const pipelineEntry =
+						frameFeedbackPipelines.get(feedbackPass) ??
+						buildPingPongShaderPipelineEntry(feedbackPass, pair.format, target);
+					if (!pipelineEntry) throw new Error('Feedback pipeline preparation is incomplete.');
 					const feedbackBindGroup = createPingPongShaderBindGroup(pipelineEntry, pair.frameBuffer);
 					frameState.capture(feedbackPass[selectFeedbackOwner](pair));
 					frameState.capture(pair);
@@ -2737,7 +2918,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					const latestOutput = feedbackPass.getCurrentOutput();
 					const latestView = latestOutput === `${pair.target}B` ? pair.viewB : pair.viewA;
 					if (attachFeedbackTextureBinding(targetBinding, latestView, pair, frameState)) {
-						bindGroup = createBindGroup();
+						bindGroupDirty = true;
 					}
 				}
 				if (bindGroupDirty) {
@@ -2791,9 +2972,12 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				// Release intermediates only after the current command buffer is submitted.
 				if (!graphHasRenderSteps) {
 					destroyRenderTexture(sourceSlotTarget);
+					sourceSlotTarget = null;
+					frameSlots.source = canvasSurface;
+				}
+				if (!targetSlotUsed) {
 					destroyRenderTexture(targetSlotTarget);
-					sourceSlotTarget = targetSlotTarget = null;
-					frameSlots.source = frameSlots.target = canvasSurface;
+					targetSlotTarget = null;
 				}
 				if (!presentationTargetUsed) {
 					destroyRenderTexture(presentationSlotTarget);
@@ -2843,8 +3027,13 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				}
 				pingPongShaderTexturePairs.clear();
 				computePipelineCache.clear();
+				asyncComputePipelines.clear();
+				asyncFeedbackPipelines.clear();
+				frameComputePipelines.clear();
+				frameFeedbackPipelines.clear();
 				computeResourceResolutionCache.clear();
 				externalTextureViewCache = new WeakMap();
+				textureBindGroups.reset();
 				pingPongShaderPipelineCache.clear();
 				destroyRenderTexture(sourceSlotTarget);
 				destroyRenderTexture(targetSlotTarget);

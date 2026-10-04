@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
 	expectCanvasHashStable,
 	getCanvasHash,
+	getCanvasPixel,
 	toNumber,
 	waitForCanvasHashChange
 } from './helpers';
@@ -452,6 +453,9 @@ test.describe('spektral compute pass e2e', () => {
 			.poll(async () => toNumber(await page.getByTestId('frame-count').textContent()))
 			.toBeGreaterThan(0);
 
+		// A frame callback can initiate asynchronous compilation without submitting an image.
+		// Wait for the material's gradient before asserting that manual rendering has stopped.
+		await expect.poll(async () => (await getCanvasPixel(page, 0.5, 0.5))[2]).toBeGreaterThan(100);
 		const hashAfterAdvance = await getCanvasHash(page);
 		await expectCanvasHashStable(page, hashAfterAdvance, 220);
 	});

@@ -69,6 +69,24 @@ describe('findDirtyFloatRanges', () => {
 		expect(findDirtyFloatRanges(a, b)).toEqual([{ start: 0, count: 4 }]);
 	});
 
+	it.each([9, 32, 128])('collapses %i fragmented writes into one complete upload', (changes) => {
+		const previous = new Float32Array(changes * 8);
+		const next = previous.slice();
+		for (let i = 0; i < changes; i++) next[i * 8] = i + 1;
+		expect(findDirtyFloatRanges(previous, next)).toEqual([{ start: 0, count: next.length }]);
+	});
+
+	it('preserves eight sparse ranges and exact values when replaying upload ranges', () => {
+		const previous = new Float32Array(64);
+		const next = previous.slice();
+		for (let i = 0; i < 8; i++) next[i * 8] = i + 1;
+		const ranges = findDirtyFloatRanges(previous, next);
+		expect(ranges).toHaveLength(8);
+		for (const range of ranges)
+			previous.set(next.subarray(range.start, range.start + range.count), range.start);
+		expect(previous).toEqual(next);
+	});
+
 	it('handles empty buffers', () => {
 		const a = new Float32Array(0);
 		const b = new Float32Array(0);

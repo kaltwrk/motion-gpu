@@ -202,6 +202,14 @@ export function createGpuMipmapGenerator(device: GPUDevice): GpuMipmapGenerator 
 	let bindGroupLayout: GPUBindGroupLayout | null = null;
 	let pipelineLayout: GPUPipelineLayout | null = null;
 	const pipelineByFormat = new Map<GPUTextureFormat, GPURenderPipeline>();
+	// Weak ownership lets replacement uploads release their mip resources together.
+	const resourcesByTexture = new WeakMap<
+		GPUTexture,
+		{
+			views: GPUTextureView[];
+			groups: GPUBindGroup[];
+		}
+	>();
 	const ensureBindGroupLayout = (): GPUBindGroupLayout => {
 		bindGroupLayout ??= device.createBindGroupLayout({
 			entries: [
@@ -232,16 +240,27 @@ export function createGpuMipmapGenerator(device: GPUDevice): GpuMipmapGenerator 
 			sampler ??= device.createSampler({ minFilter: 'linear', magFilter: 'linear' });
 			const layout = ensureBindGroupLayout();
 			const pipeline = ensurePipeline(format);
+			let resources = resourcesByTexture.get(texture);
+			if (!resources) {
+				resources = { views: [], groups: [] };
+				resourcesByTexture.set(texture, resources);
+			}
 			for (let level = 1; level < mipLevelCount; level += 1) {
-				const sourceView = texture.createView({ baseMipLevel: level - 1, mipLevelCount: 1 });
-				const targetView = texture.createView({ baseMipLevel: level, mipLevelCount: 1 });
-				const bindGroup = device.createBindGroup({
+				const sourceView = (resources.views[level - 1] ??= texture.createView({
+					baseMipLevel: level - 1,
+					mipLevelCount: 1
+				}));
+				const targetView = (resources.views[level] ??= texture.createView({
+					baseMipLevel: level,
+					mipLevelCount: 1
+				}));
+				const bindGroup = (resources.groups[level - 1] ??= device.createBindGroup({
 					layout,
 					entries: [
 						{ binding: 0, resource: sampler },
 						{ binding: 1, resource: sourceView }
 					]
-				});
+				}));
 				const pass = commandEncoder.beginRenderPass({
 					colorAttachments: [
 						{
@@ -303,6 +322,8 @@ export function createBindGroupLayoutEntries(
 }
 
 const DIRTY_RANGE_MERGE_GAP = 4;
+// Bound queue-call overhead even when every other uniform changes.
+const MAX_DIRTY_RANGE_WRITES = 8;
 const EMPTY_DIRTY_RANGES: ReadonlyArray<{ start: number; count: number }> = [];
 
 export function findDirtyFloatRanges(
@@ -310,38 +331,22 @@ export function findDirtyFloatRanges(
 	next: Float32Array,
 	mergeGapThreshold = DIRTY_RANGE_MERGE_GAP
 ): ReadonlyArray<{ start: number; count: number }> {
-	let start = -1;
-	let rangeCount = 0;
-	const ranges: Array<{ start: number; count: number }> = [];
+	let ranges: Array<{ start: number; count: number }> | undefined;
+	let current: { start: number; count: number } | undefined;
 	for (let index = 0; index < next.length; index += 1) {
-		if (previous[index] !== next[index]) {
-			if (start === -1) start = index;
-			continue;
+		if (previous[index] === next[index]) continue;
+		if (current) {
+			const gap = index - (current.start + current.count);
+			if (gap === 0 || gap <= mergeGapThreshold) {
+				current.count = index + 1 - current.start;
+				continue;
+			}
 		}
-		if (start !== -1) {
-			ranges.push({ start, count: index - start });
-			rangeCount += 1;
-			start = -1;
-		}
+		if (ranges?.length === MAX_DIRTY_RANGE_WRITES) return [{ start: 0, count: next.length }];
+		current = { start: index, count: 1 };
+		(ranges ??= []).push(current);
 	}
-	if (start !== -1) {
-		ranges.push({ start, count: next.length - start });
-		rangeCount += 1;
-	}
-	if (rangeCount === 0) return EMPTY_DIRTY_RANGES;
-	if (rangeCount <= 1) return ranges;
-	const merged: Array<{ start: number; count: number }> = [ranges[0]!];
-	for (let index = 1; index < rangeCount; index += 1) {
-		const previousRange = merged[merged.length - 1]!;
-		const currentRange = ranges[index]!;
-		const gap = currentRange.start - (previousRange.start + previousRange.count);
-		if (gap <= mergeGapThreshold) {
-			previousRange.count = currentRange.start + currentRange.count - previousRange.start;
-		} else {
-			merged.push(currentRange);
-		}
-	}
-	return merged;
+	return ranges ?? EMPTY_DIRTY_RANGES;
 }
 
 export function createRenderTexture(

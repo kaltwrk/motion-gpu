@@ -31,7 +31,7 @@ const ENTRY_PATH = resolve(BROWSER_ROOT, 'real-renderer-benchmark.ts');
 const HTML_PATH = resolve(BROWSER_ROOT, 'real-renderer.html');
 const LATEST_PATH = resolve(PACKAGE_ROOT, 'benchmarks/results/real-renderer-latest.json');
 const BASELINE_DIRECTORY = resolve(PACKAGE_ROOT, 'benchmarks/baselines');
-const SUITE_VERSION = 1;
+const SUITE_VERSION = 3;
 const MINIMUM_GATE_RUNS = 5;
 
 const HARDWARE_LAUNCH_ARGS = [

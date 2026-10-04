@@ -4,4 +4,5 @@ export interface RuntimeControls {
 	setRenderMode: (mode: RenderMode) => void;
 	invalidate: () => void;
 	advance: () => void;
+	setTaskActive: (active: boolean) => void;
 }

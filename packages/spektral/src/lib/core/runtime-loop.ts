@@ -11,7 +11,7 @@ import {
 	type SpektralErrorReport
 } from './error-report.js';
 import { createRenderer } from './renderer.js';
-import { buildRendererPipelineSignature } from './recompile-policy.js';
+import { createRendererPipelineSignatureResolver } from './recompile-policy.js';
 import { assertUniformValueForType } from './uniforms.js';
 import { getFrameScheduling, type FrameRegistry } from './frame-registry.js';
 import type {
@@ -99,6 +99,7 @@ export function createSpektralRuntimeLoop(
 ): SpektralRuntimeLoop {
 	const { canvas: canvasElement, registry, size } = options;
 	const frameScheduling = getFrameScheduling(registry);
+	const resolveRendererSignature = createRendererPipelineSignatureResolver();
 	let frameId: number | null = null;
 	let retryTimerId: ReturnType<typeof setTimeout> | null = null;
 	let errorClearTimerId: ReturnType<typeof setTimeout> | null = null;
@@ -584,12 +585,15 @@ export function createSpektralRuntimeLoop(
 		const adapterOptions = options.getAdapterOptions();
 		const deviceDescriptor = options.getDeviceDescriptor();
 		syncMaterialRuntimeState(materialState, materialDeclaration.storageBuffers);
-		const rendererSignature = `${storageDataRevision}:${buildRendererPipelineSignature({
-			materialSignature: materialState.signature,
-			...(color !== undefined ? { color } : {}),
-			...(adapterOptions !== undefined ? { adapterOptions } : {}),
-			...(deviceDescriptor !== undefined ? { deviceDescriptor } : {})
-		})}`;
+		const rendererSignature = resolveRendererSignature(
+			{
+				materialSignature: materialState.signature,
+				...(color !== undefined ? { color } : {}),
+				...(adapterOptions !== undefined ? { adapterOptions } : {}),
+				...(deviceDescriptor !== undefined ? { deviceDescriptor } : {})
+			},
+			storageDataRevision
+		);
 
 		if (failedRendererSignature && failedRendererSignature !== rendererSignature) {
 			failedRendererSignature = null;

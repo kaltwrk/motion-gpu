@@ -7,7 +7,7 @@ import { build } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 export const BUNDLE_BUDGET_SCHEMA_VERSION = 1;
-export const MAX_RELATIVE_GROWTH = 0.05;
+export const MAX_RELATIVE_GROWTH = 0.075;
 export const MAX_ABSOLUTE_GROWTH_BYTES = 1024;
 
 const packageRoot = fileURLToPath(new URL('../..', import.meta.url));

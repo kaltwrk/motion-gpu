@@ -11,6 +11,7 @@ type PerfWindow = Window &
 			setMode: (mode: RenderMode) => void;
 			invalidate: () => void;
 			advance: () => void;
+			setTaskActive: (active: boolean) => void;
 		};
 	};
 
@@ -91,7 +92,8 @@ export function PerfScenario() {
 		perfWindow.__SPEKTRAL_PERF__ = {
 			setMode,
 			invalidate: controls.invalidate,
-			advance: controls.advance
+			advance: controls.advance,
+			setTaskActive: controls.setTaskActive
 		};
 
 		return () => {
@@ -155,7 +157,7 @@ export function PerfScenario() {
 					showErrorOverlay={false}
 					onError={handleError}
 				>
-					<RuntimeProbe onFrame={setSchedulerCount} onReady={handleReady} />
+					<RuntimeProbe passive onFrame={setSchedulerCount} onReady={handleReady} />
 				</FragCanvas>
 			</div>
 		</main>

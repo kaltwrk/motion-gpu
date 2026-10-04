@@ -4,7 +4,7 @@ import { createFrameRegistry } from '../../lib/core/frame-registry';
 import { defineMaterial, resolveMaterial } from '../../lib/core/material';
 import { attachShaderCompilationDiagnostics } from '../../lib/core/error-diagnostics';
 import { packUniformsIntoFast } from '../../lib/core/uniforms';
-import type { UniformValue } from '../../lib/core/types';
+import type { UniformValue, ColorPipelineOptions } from '../../lib/core/types';
 
 const { createRendererMock } = vi.hoisted(() => ({
 	createRendererMock: vi.fn()
@@ -667,53 +667,119 @@ describe('runtime-loop', () => {
 		expect(lateRenderer.destroy).toHaveBeenCalledTimes(1);
 	});
 
-	it('renders async renderer readiness in manual mode without another user advance', async () => {
-		const registry = createFrameRegistry({ renderMode: 'manual' });
-		let requestRendererFrame: (() => void) | undefined;
-		const renderer: MockRenderer = {
-			render: vi.fn(),
-			destroy: vi.fn()
-		};
-		renderer.render.mockImplementationOnce(() => {
-			Promise.resolve().then(() => requestRendererFrame?.());
-		});
-		createRendererMock.mockImplementation(
-			async (options: { requestRender?: () => void }): Promise<MockRenderer> => {
-				requestRendererFrame = options.requestRender;
-				return renderer;
-			}
-		);
+	it.each(['manual', 'on-demand'] as const)(
+		'renders async renderer readiness in %s mode without another user advance',
+		async (renderMode) => {
+			const registry = createFrameRegistry({ renderMode });
+			let requestRendererFrame: (() => void) | undefined;
+			const renderer: MockRenderer = {
+				render: vi.fn(),
+				destroy: vi.fn()
+			};
+			createRendererMock.mockImplementation(
+				async (options: { requestRender?: () => void }): Promise<MockRenderer> => {
+					requestRendererFrame = options.requestRender;
+					return renderer;
+				}
+			);
 
+			const loop = createSpektralRuntimeLoop({
+				canvas: createCanvas(),
+				registry,
+				size: createCurrentWritable({ width: 0, height: 0 }),
+				dpr: { current: 1, subscribe: () => () => undefined },
+				maxDelta: { current: 1, subscribe: () => () => undefined },
+				getMaterial: () =>
+					defineMaterial({
+						fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }'
+					}),
+				getRenderTargets: () => ({}),
+				getPasses: () => [],
+				getClearColor: () => [0, 0, 0, 1],
+				getAdapterOptions: () => undefined,
+				getDeviceDescriptor: () => undefined,
+				getOnError: () => undefined,
+				reportError: () => undefined
+			});
+
+			await flushFrame(16); // renderer initialization
+			await flushFrame(32); // settle the initial on-demand frame
+			renderer.render.mockClear();
+			renderer.render.mockImplementationOnce(() => {
+				Promise.resolve().then(() => requestRendererFrame?.());
+			});
+
+			loop.advance();
+			await flushFrame(48); // first frame discovers pending async renderer work
+			expect(renderer.render).toHaveBeenCalledTimes(1);
+			expect(rafQueue).toHaveLength(1);
+
+			await flushFrame(64); // readiness callback must render, not just run another RAF
+			expect(renderer.render).toHaveBeenCalledTimes(2);
+			if (renderMode === 'on-demand') await flushFrame(80); // final idle scheduling check
+			expect(renderer.render).toHaveBeenCalledTimes(2);
+			expect(rafQueue).toHaveLength(0);
+			loop.destroy();
+		}
+	);
+
+	it('does not serialize unchanged WGSL each frame and detects mutations inside renderer options', async () => {
+		const fragment =
+			'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }\n//' + 'x'.repeat(128 * 1024);
+		const material = defineMaterial({ fragment });
+		const renderer: MockRenderer = { render: vi.fn(), destroy: vi.fn() };
+		createRendererMock.mockResolvedValue(renderer);
+		const color: ColorPipelineOptions = { outputEncoding: 'srgb' };
+		const features = new Set<GPUFeatureName>();
+		const limits = { maxTextureDimension2D: 1024 };
+		const adapter: GPURequestAdapterOptions = { powerPreference: 'low-power' };
 		const loop = createSpektralRuntimeLoop({
 			canvas: createCanvas(),
-			registry,
-			size: createCurrentWritable({ width: 0, height: 0 }),
-			dpr: { current: 1, subscribe: () => () => undefined },
-			maxDelta: { current: 1, subscribe: () => () => undefined },
-			getMaterial: () =>
-				defineMaterial({
-					fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }'
-				}),
+			registry: createFrameRegistry(),
+			size: createCurrentWritable({ width: 16, height: 9 }),
+			dpr: createCurrentWritable(1),
+			maxDelta: createCurrentWritable(0.1),
+			getMaterial: () => material,
 			getRenderTargets: () => ({}),
 			getPasses: () => [],
 			getClearColor: () => [0, 0, 0, 1],
-			getAdapterOptions: () => undefined,
-			getDeviceDescriptor: () => undefined,
+			getColor: () => color,
+			getAdapterOptions: () => adapter,
+			getDeviceDescriptor: () => ({ requiredFeatures: features, requiredLimits: limits }),
 			getOnError: () => undefined,
-			reportError: () => undefined
+			reportError: vi.fn()
 		});
-
-		await flushFrame(16); // renderer initialization
-		await flushFrame(32); // manual mode remains idle
-		expect(renderer.render).not.toHaveBeenCalled();
-
-		loop.advance();
-		await flushFrame(48); // first frame discovers pending async renderer work
-		expect(renderer.render).toHaveBeenCalledTimes(1);
-		expect(rafQueue).toHaveLength(1);
-
-		await flushFrame(64); // readiness callback must render, not just run another RAF
-		expect(renderer.render).toHaveBeenCalledTimes(2);
+		await flushFrame(16);
+		await flushFrame(32);
+		const stringify = vi.spyOn(JSON, 'stringify');
+		for (let frame = 0; frame < 20; frame++) await flushFrame(48 + frame * 16);
+		const serializedSources = stringify.mock.calls.filter(
+			([value]) =>
+				typeof value?.materialSignature === 'string' && value.materialSignature.length > 128 * 1024
+		);
+		expect(serializedSources).toHaveLength(0);
+		expect(createRendererMock).toHaveBeenCalledOnce();
+		for (const mutate of [
+			() => {
+				color.outputEncoding = 'linear';
+			},
+			() => {
+				features.add('shader-f16');
+			},
+			() => {
+				limits.maxTextureDimension2D = 2048;
+			},
+			() => {
+				adapter.powerPreference = 'high-performance';
+			}
+		]) {
+			const count = createRendererMock.mock.calls.length;
+			mutate();
+			loop.invalidate();
+			await flushFrame(500);
+			await flushFrame(516);
+			expect(createRendererMock).toHaveBeenCalledTimes(count + 1);
+		}
 		loop.destroy();
 	});
 
