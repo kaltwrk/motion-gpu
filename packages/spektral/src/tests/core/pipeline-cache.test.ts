@@ -1,5 +1,99 @@
 import { expect, it, vi } from 'vitest';
-import { ActivePipelineCache, PipelineKeyCache } from '../../lib/core/renderer/pipeline-cache';
+import {
+	ActivePipelineCache,
+	AsyncPipelineCache,
+	PipelineKeyCache
+} from '../../lib/core/renderer/pipeline-cache';
+
+it('deduplicates asynchronous preparations, wakes active owners and caches failures', async () => {
+	const wake = vi.fn();
+	const cache = new AsyncPipelineCache<object>(2, wake);
+	const owner = {};
+	const entry = {};
+	const build = vi.fn(async () => entry);
+	expect(cache.get(owner, 'a', build)).toBeNull();
+	expect(cache.get({}, 'a', build)).toBeNull();
+	expect(build).toHaveBeenCalledOnce();
+	await Promise.resolve();
+	expect(wake).toHaveBeenCalledOnce();
+	expect(cache.get(owner, 'a', build)).toBe(entry);
+	const failure = new Error('compile failed');
+	expect(
+		cache.get(owner, 'b', async () => {
+			throw failure;
+		})
+	).toBeNull();
+	await Promise.resolve();
+	expect(() => cache.get(owner, 'b', build)).toThrow(failure);
+	expect(wake).toHaveBeenCalledTimes(2);
+});
+
+it.each(['removed', 'replaced', 'evicted', 'disposed'] as const)(
+	'ignores late preparation notifications for %s owners',
+	async (reason) => {
+		const wake = vi.fn();
+		const cache = new AsyncPipelineCache<object>(reason === 'replaced' ? 2 : 1, wake);
+		const owner = {};
+		let finish!: (value: object) => void;
+		cache.get(
+			owner,
+			'old',
+			() =>
+				new Promise((resolve) => {
+					finish = resolve;
+				})
+		);
+		if (reason === 'removed') cache.retainOwners([]);
+		if (reason === 'replaced' || reason === 'evicted')
+			cache.get(owner, 'new', () => new Promise(() => {}));
+		if (reason === 'disposed') cache.clear();
+		finish({});
+		await Promise.resolve();
+		expect(wake).not.toHaveBeenCalled();
+		cache.clear();
+		const build = vi.fn(async () => ({}));
+		expect(cache.get(owner, 'new', build)).toBeNull();
+		expect(build).not.toHaveBeenCalled();
+	}
+);
+
+it('does not let an evicted preparation overwrite a newer preparation of the same key', async () => {
+	const wake = vi.fn();
+	const cache = new AsyncPipelineCache<object>(1, wake);
+	const owner = {};
+	const pending: Array<(entry: object) => void> = [];
+	const build = () => new Promise<object>((resolve) => pending.push(resolve));
+	cache.get(owner, 'a', build);
+	cache.get(owner, 'b', build);
+	cache.get(owner, 'a', build);
+	pending[0]!({ stale: true });
+	await Promise.resolve();
+	expect(wake).not.toHaveBeenCalled();
+	expect(cache.get(owner, 'a', build)).toBeNull();
+	const fresh = {};
+	pending[2]!(fresh);
+	await Promise.resolve();
+	expect(wake).toHaveBeenCalledOnce();
+	expect(cache.get(owner, 'a', build)).toBe(fresh);
+});
+
+it.each(['synchronous', 'asynchronous'] as const)(
+	'normalizes and retains %s preparation errors',
+	async (kind) => {
+		const cache = new AsyncPipelineCache<object>(1, vi.fn());
+		const owner = {};
+		const build = vi.fn(() => {
+			if (kind === 'synchronous') throw 'invalid pipeline';
+			return Promise.reject('invalid pipeline');
+		});
+		if (kind === 'synchronous')
+			expect(() => cache.get(owner, 'a', build)).toThrow('invalid pipeline');
+		else expect(cache.get(owner, 'a', build)).toBeNull();
+		await Promise.resolve();
+		expect(() => cache.get(owner, 'a', build)).toThrow('invalid pipeline');
+		expect(build).toHaveBeenCalledOnce();
+	}
+);
 
 it('serializes pipeline keys only when scalar inputs change, with unambiguous boundaries', () => {
 	const cache = new PipelineKeyCache();

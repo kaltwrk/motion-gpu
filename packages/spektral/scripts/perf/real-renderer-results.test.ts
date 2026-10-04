@@ -79,7 +79,8 @@ function browserResult(result: ScenarioResult): RealRendererBrowserResult {
 			cpuFramesPerBatch: 2,
 			cpuInterval: 'amortized-renderer.render-call',
 			gpuInterval: 'pre-marker-end-to-post-marker-begin',
-			completionInterval: 'before-render-to-onSubmittedWorkDone'
+			completionInterval: 'before-render-to-onSubmittedWorkDone',
+			managedPipelinePreparation: 'async-readiness-callback'
 		},
 		scenarios: [result]
 	};

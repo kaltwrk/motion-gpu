@@ -37,6 +37,7 @@ interface MockWebGpuRuntime {
 		createRenderPipeline: ReturnType<typeof vi.fn>;
 		createRenderPipelineAsync: ReturnType<typeof vi.fn>;
 		createComputePipeline: ReturnType<typeof vi.fn>;
+		createComputePipelineAsync?: ReturnType<typeof vi.fn>;
 		createBuffer: ReturnType<typeof vi.fn>;
 		createBindGroup: ReturnType<typeof vi.fn>;
 		createCommandEncoder: ReturnType<typeof vi.fn>;
@@ -3988,6 +3989,257 @@ describe('createRenderer', () => {
 		expect(report.rawMessage).not.toContain('WebGPU uncaptured error');
 
 		renderer.destroy();
+	});
+
+	it.each(['compute', 'feedback'] as const)(
+		'prepares %s pipelines asynchronously and submits only complete validated frames',
+		async (kind) => {
+			const runtime = createWebGpuRuntime();
+			runtime.device.createComputePipelineAsync = vi.fn();
+			const { ComputePass, PingPongShaderPass } = await import('../../lib/passes');
+			const computeSource =
+				'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {}';
+			const fragment = 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }';
+			const pass =
+				kind === 'compute'
+					? new ComputePass({ compute: computeSource })
+					: new PingPongShaderPass({ target: 'sim', fragment });
+			const requestRender = vi.fn();
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: {} },
+				passes: [pass],
+				requestRender
+			});
+			const pending: Array<{
+				resolve: (pipeline: GPUComputePipeline & GPURenderPipeline) => void;
+				reject: (error: Error) => void;
+			}> = [];
+			const compile =
+				kind === 'compute'
+					? runtime.device.createComputePipelineAsync
+					: runtime.device.createRenderPipelineAsync;
+			compile.mockImplementation(
+				() =>
+					new Promise<GPUComputePipeline & GPURenderPipeline>((resolve, reject) =>
+						pending.push({ resolve, reject })
+					)
+			);
+			compile.mockClear();
+			const syncCompute = runtime.device.createComputePipeline.mock.calls.length;
+			const syncRender = runtime.device.createRenderPipeline.mock.calls.length;
+			renderFrame(renderer);
+			expect(runtime.device.createComputePipeline).toHaveBeenCalledTimes(syncCompute);
+			expect(runtime.device.createRenderPipeline).toHaveBeenCalledTimes(syncRender);
+			expect(compile).not.toHaveBeenCalled();
+			expect(runtime.device.queue.submit).not.toHaveBeenCalled();
+			await vi.waitFor(() => expect(pending).toHaveLength(1));
+			renderFrame(renderer);
+			expect(compile).toHaveBeenCalledOnce();
+			expect(runtime.device.queue.submit).not.toHaveBeenCalled();
+			pending[0]!.resolve({} as GPUComputePipeline & GPURenderPipeline);
+			await vi.waitFor(() => expect(requestRender).toHaveBeenCalledOnce());
+			renderFrame(renderer);
+			expect(runtime.device.queue.submit).toHaveBeenCalledOnce();
+			const edit = (suffix: string) => {
+				if (pass instanceof ComputePass) pass.setCompute(computeSource + suffix);
+				else pass.setFragment(fragment + suffix);
+			};
+			edit('\n// next variant');
+			requestRender.mockClear();
+			renderFrame(renderer);
+			expect(runtime.device.queue.submit).toHaveBeenCalledOnce();
+			await vi.waitFor(() => expect(pending).toHaveLength(2));
+			pending[1]!.reject(new Error('pipeline rejected'));
+			await vi.waitFor(() => expect(requestRender).toHaveBeenCalledOnce());
+			expect(() => renderFrame(renderer)).toThrow(/pipeline rejected/);
+			expect(runtime.device.queue.submit).toHaveBeenCalledOnce();
+			edit('');
+			renderFrame(renderer);
+			expect(runtime.device.queue.submit).toHaveBeenCalledTimes(2);
+			expect(compile).toHaveBeenCalledTimes(2);
+			renderer.destroy();
+		}
+	);
+
+	it('waits for every pipeline in a mixed graph before encoding or acquiring the canvas', async () => {
+		const runtime = createWebGpuRuntime();
+		let finishCompute!: (pipeline: GPUComputePipeline) => void;
+		let finishFeedback!: (pipeline: GPURenderPipeline) => void;
+		runtime.device.createComputePipelineAsync = vi.fn(
+			() =>
+				new Promise((resolve) => {
+					finishCompute = resolve;
+				})
+		);
+		const { ComputePass, PingPongShaderPass } = await import('../../lib/passes');
+		const requestRender = vi.fn();
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			requestRender,
+			textureKeys: ['sim'],
+			textureDefinitions: { sim: {} },
+			passes: [
+				new ComputePass({
+					compute:
+						'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {}'
+				}),
+				new PingPongShaderPass({
+					target: 'sim',
+					fragment: 'fn frag(uv: vec2f) -> vec4f { return previous(uv); }'
+				})
+			]
+		});
+		runtime.device.createRenderPipelineAsync.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					finishFeedback = resolve;
+				})
+		);
+		renderFrame(renderer);
+		await vi.waitFor(() => expect(finishCompute).toBeDefined());
+		finishCompute({} as GPUComputePipeline);
+		await vi.waitFor(() => expect(requestRender).toHaveBeenCalledOnce());
+		renderFrame(renderer);
+		expect(runtime.context.getCurrentTexture).not.toHaveBeenCalled();
+		expect(runtime.device.queue.submit).not.toHaveBeenCalled();
+		for (const encoder of runtime.commandEncoders) {
+			expect(encoder.beginComputePass).not.toHaveBeenCalled();
+			expect(encoder.beginRenderPass).not.toHaveBeenCalled();
+		}
+		finishFeedback({} as GPURenderPipeline);
+		await vi.waitFor(() => expect(requestRender).toHaveBeenCalledTimes(2));
+		renderFrame(renderer);
+		expect(runtime.context.getCurrentTexture).toHaveBeenCalledOnce();
+		expect(runtime.device.queue.submit).toHaveBeenCalledOnce();
+		expect(runtime.computePasses.at(-1)!.dispatchWorkgroups).toHaveBeenCalledOnce();
+		renderer.destroy();
+	});
+
+	it.each(['compute', 'feedback'] as const)(
+		'waits for %s validation and reports its error before submission',
+		async (kind) => {
+			const runtime = createWebGpuRuntime();
+			runtime.device.createComputePipelineAsync = vi.fn(async () => ({}));
+			const { ComputePass, PingPongShaderPass } = await import('../../lib/passes');
+			const requestRender = vi.fn();
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				requestRender,
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: {} },
+				passes: [
+					kind === 'compute'
+						? new ComputePass({
+								compute:
+									'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {}'
+							})
+						: new PingPongShaderPass({
+								target: 'sim',
+								fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+							})
+				]
+			});
+			let finishValidation!: (error: GPUError | null) => void;
+			runtime.device.popErrorScope.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						finishValidation = resolve;
+					})
+			);
+			renderFrame(renderer);
+			await vi.waitFor(() => expect(finishValidation).toBeDefined());
+			expect(requestRender).not.toHaveBeenCalled();
+			renderFrame(renderer);
+			expect(runtime.device.queue.submit).not.toHaveBeenCalled();
+			finishValidation({ message: 'invalid pipeline layout' } as GPUError);
+			await vi.waitFor(() => expect(requestRender).toHaveBeenCalledOnce());
+			let thrown: unknown;
+			try {
+				renderFrame(renderer);
+			} catch (error) {
+				thrown = error;
+			}
+			expect(thrown).toBeInstanceOf(Error);
+			expect(String(thrown)).toContain('invalid pipeline layout');
+			expect(getShaderCompilationDiagnostics(thrown)?.shaderStage).toBe(
+				kind === 'compute' ? 'compute' : 'fragment'
+			);
+			expect(runtime.device.queue.submit).not.toHaveBeenCalled();
+			expect(runtime.device.pushErrorScope.mock.calls.length).toBe(
+				runtime.device.popErrorScope.mock.calls.length
+			);
+			renderer.destroy();
+		}
+	);
+
+	it.each(['compute', 'feedback'] as const)(
+		'ignores %s completion after renderer disposal',
+		async (kind) => {
+			const runtime = createWebGpuRuntime();
+			runtime.device.createComputePipelineAsync = vi.fn();
+			const { ComputePass, PingPongShaderPass } = await import('../../lib/passes');
+			const requestRender = vi.fn();
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				requestRender,
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: {} },
+				passes: [
+					kind === 'compute'
+						? new ComputePass({
+								compute:
+									'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {}'
+							})
+						: new PingPongShaderPass({
+								target: 'sim',
+								fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+							})
+				]
+			});
+			let finish!: (pipeline: object) => void;
+			const compile =
+				kind === 'compute'
+					? runtime.device.createComputePipelineAsync
+					: runtime.device.createRenderPipelineAsync;
+			compile.mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						finish = resolve;
+					})
+			);
+			renderFrame(renderer);
+			await vi.waitFor(() => expect(finish).toBeDefined());
+			renderer.destroy();
+			finish({});
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(requestRender).not.toHaveBeenCalled();
+			expect(runtime.device.queue.submit).not.toHaveBeenCalled();
+		}
+	);
+
+	it('does not compile deferred managed work after renderer disposal', async () => {
+		const runtime = createWebGpuRuntime();
+		runtime.device.createComputePipelineAsync = vi.fn();
+		const { ComputePass } = await import('../../lib/passes');
+		const requestRender = vi.fn();
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			requestRender,
+			passes: [
+				new ComputePass({
+					compute:
+						'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {}'
+				})
+			]
+		});
+		renderFrame(renderer);
+		renderer.destroy();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(runtime.device.createComputePipeline).not.toHaveBeenCalled();
+		expect(runtime.device.createComputePipelineAsync).not.toHaveBeenCalled();
+		expect(requestRender).not.toHaveBeenCalled();
 	});
 
 	it('dispatches ping-pong compute iterations with alternating read/write bind groups', async () => {

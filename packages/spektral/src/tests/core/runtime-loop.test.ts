@@ -667,55 +667,59 @@ describe('runtime-loop', () => {
 		expect(lateRenderer.destroy).toHaveBeenCalledTimes(1);
 	});
 
-	it('renders async renderer readiness in manual mode without another user advance', async () => {
-		const registry = createFrameRegistry({ renderMode: 'manual' });
-		let requestRendererFrame: (() => void) | undefined;
-		const renderer: MockRenderer = {
-			render: vi.fn(),
-			destroy: vi.fn()
-		};
-		renderer.render.mockImplementationOnce(() => {
-			Promise.resolve().then(() => requestRendererFrame?.());
-		});
-		createRendererMock.mockImplementation(
-			async (options: { requestRender?: () => void }): Promise<MockRenderer> => {
-				requestRendererFrame = options.requestRender;
-				return renderer;
-			}
-		);
+	it.each(['manual', 'onDemand'] as const)(
+		'renders async renderer readiness in %s mode without another user advance',
+		async (renderMode) => {
+			const registry = createFrameRegistry({ renderMode });
+			let requestRendererFrame: (() => void) | undefined;
+			const renderer: MockRenderer = {
+				render: vi.fn(),
+				destroy: vi.fn()
+			};
+			createRendererMock.mockImplementation(
+				async (options: { requestRender?: () => void }): Promise<MockRenderer> => {
+					requestRendererFrame = options.requestRender;
+					return renderer;
+				}
+			);
 
-		const loop = createSpektralRuntimeLoop({
-			canvas: createCanvas(),
-			registry,
-			size: createCurrentWritable({ width: 0, height: 0 }),
-			dpr: { current: 1, subscribe: () => () => undefined },
-			maxDelta: { current: 1, subscribe: () => () => undefined },
-			getMaterial: () =>
-				defineMaterial({
-					fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }'
-				}),
-			getRenderTargets: () => ({}),
-			getPasses: () => [],
-			getClearColor: () => [0, 0, 0, 1],
-			getAdapterOptions: () => undefined,
-			getDeviceDescriptor: () => undefined,
-			getOnError: () => undefined,
-			reportError: () => undefined
-		});
+			const loop = createSpektralRuntimeLoop({
+				canvas: createCanvas(),
+				registry,
+				size: createCurrentWritable({ width: 0, height: 0 }),
+				dpr: { current: 1, subscribe: () => () => undefined },
+				maxDelta: { current: 1, subscribe: () => () => undefined },
+				getMaterial: () =>
+					defineMaterial({
+						fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }'
+					}),
+				getRenderTargets: () => ({}),
+				getPasses: () => [],
+				getClearColor: () => [0, 0, 0, 1],
+				getAdapterOptions: () => undefined,
+				getDeviceDescriptor: () => undefined,
+				getOnError: () => undefined,
+				reportError: () => undefined
+			});
 
-		await flushFrame(16); // renderer initialization
-		await flushFrame(32); // manual mode remains idle
-		expect(renderer.render).not.toHaveBeenCalled();
+			await flushFrame(16); // renderer initialization
+			await flushFrame(32); // settle the initial on-demand frame
+			renderer.render.mockClear();
+			renderer.render.mockImplementationOnce(() => {
+				Promise.resolve().then(() => requestRendererFrame?.());
+			});
 
-		loop.advance();
-		await flushFrame(48); // first frame discovers pending async renderer work
-		expect(renderer.render).toHaveBeenCalledTimes(1);
-		expect(rafQueue).toHaveLength(1);
+			loop.advance();
+			await flushFrame(48); // first frame discovers pending async renderer work
+			expect(renderer.render).toHaveBeenCalledTimes(1);
+			expect(rafQueue).toHaveLength(1);
 
-		await flushFrame(64); // readiness callback must render, not just run another RAF
-		expect(renderer.render).toHaveBeenCalledTimes(2);
-		loop.destroy();
-	});
+			await flushFrame(64); // readiness callback must render, not just run another RAF
+			expect(renderer.render).toHaveBeenCalledTimes(2);
+			expect(rafQueue).toHaveLength(0);
+			loop.destroy();
+		}
+	);
 
 	it('does not serialize unchanged WGSL each frame and detects mutations inside renderer options', async () => {
 		const fragment =

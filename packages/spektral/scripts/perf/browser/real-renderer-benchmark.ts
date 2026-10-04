@@ -65,6 +65,7 @@ export interface RealRendererBrowserResult {
 		cpuInterval: 'amortized-renderer.render-call';
 		gpuInterval: 'pre-marker-end-to-post-marker-begin';
 		completionInterval: 'before-render-to-onSubmittedWorkDone';
+		managedPipelinePreparation: 'async-readiness-callback';
 	};
 	scenarios: ScenarioResult[];
 }
@@ -257,7 +258,8 @@ fn compute(@builtin(global_invocation_id) id: vec3u) {
 
 async function createScenarioRenderer(
 	name: ScenarioName,
-	canvas: HTMLCanvasElement
+	canvas: HTMLCanvasElement,
+	requestRender: () => void
 ): Promise<{ renderer: Renderer; passes: AnyPass[] }> {
 	const withCompute = name === 'compute';
 	const textured = name.startsWith('feedback-') || name === 'dynamic-mipmaps';
@@ -312,6 +314,7 @@ fn frag(uv: vec2f) -> vec4f {
 	const passes = createPasses(name);
 	const renderer = await createRenderer({
 		canvas,
+		requestRender,
 		fragmentWgsl: resolved.fragmentWgsl,
 		fragmentLineMap: resolved.fragmentLineMap,
 		fragmentSource: resolved.fragmentSource,
@@ -453,7 +456,11 @@ async function runScenario(name: ScenarioName): Promise<ScenarioResult> {
 	canvas.height = HEIGHT;
 	document.body.replaceChildren(canvas);
 	const readback = installCanvasReadback(canvas);
-	const scenario = await createScenarioRenderer(name, canvas);
+	let signalReady!: () => void;
+	const ready = new Promise<void>((resolve) => {
+		signalReady = resolve;
+	});
+	const scenario = await createScenarioRenderer(name, canvas, signalReady);
 	const { renderer, passes } = scenario;
 	const device = renderer.getDevice?.();
 	if (!device) {
@@ -472,6 +479,49 @@ async function runScenario(name: ScenarioName): Promise<ScenarioResult> {
 		});
 	};
 	try {
+		if (name === 'compute' || name.startsWith('feedback-')) {
+			// Each of these scenarios prepares one managed pipeline. Its readiness
+			// callback waits for compilation and validation before warmup starts.
+			let pipelineCalls = 0;
+			const methods = [
+				'createComputePipeline',
+				'createComputePipelineAsync',
+				'createRenderPipeline',
+				'createRenderPipelineAsync'
+			] as const;
+			const restore: Array<() => void> = [];
+			for (const method of methods) {
+				const original = device[method];
+				Reflect.set(device, method, (...args: unknown[]) => {
+					pipelineCalls++;
+					return Reflect.apply(original, device, args);
+				});
+				restore.push(() => {
+					Reflect.set(device, method, original);
+				});
+			}
+			try {
+				render();
+			} finally {
+				for (const reset of restore) reset();
+			}
+			if (pipelineCalls !== 0)
+				throw new Error(`Managed pipeline compilation ran inside render(): ${name}`);
+			let timeout: ReturnType<typeof setTimeout> | undefined;
+			try {
+				await Promise.race([
+					ready,
+					new Promise<never>((_, reject) => {
+						timeout = setTimeout(
+							() => reject(new Error(`Pipeline readiness timed out: ${name}`)),
+							15_000
+						);
+					})
+				]);
+			} finally {
+				clearTimeout(timeout);
+			}
+		}
 		for (let index = 0; index < WARMUP_FRAMES; index += 1) {
 			render();
 			await device.queue.onSubmittedWorkDone();
@@ -599,7 +649,8 @@ async function run(): Promise<RealRendererBrowserResult> {
 			cpuFramesPerBatch: CPU_FRAMES_PER_BATCH,
 			cpuInterval: 'amortized-renderer.render-call',
 			gpuInterval: 'pre-marker-end-to-post-marker-begin',
-			completionInterval: 'before-render-to-onSubmittedWorkDone'
+			completionInterval: 'before-render-to-onSubmittedWorkDone',
+			managedPipelinePreparation: 'async-readiness-callback'
 		},
 		scenarios: [
 			await runScenario('no-pass'),

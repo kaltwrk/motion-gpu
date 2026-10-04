@@ -152,6 +152,10 @@ creation over 100 frames after warmup, outside all timing windows. Every scenari
 additional allocations. Swapchain views are excluded because WebGPU requires a current canvas view
 for each frame. These exact invariants run even without a compatible timing baseline.
 
+Managed compute and feedback scenarios use the readiness callback, wait for validated asynchronous
+preparation before warmup, and reject any pipeline compiler call inside the cold `render()` call.
+Timing samples describe warmed rendering; they do not measure total startup latency.
+
 It records three distinct intervals:
 
 - amortized JavaScript time spent in `renderer.render()` as CPU submit cost;

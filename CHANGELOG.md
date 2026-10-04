@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Performance
 
+- Prepare managed compute and fragment-feedback pipelines asynchronously when the host supplies a readiness callback. Frames wait for every managed pipeline and its validation before submission; bounded caches retain working variants, stale completions cannot wake removed owners, and direct renderer hosts without a callback keep synchronous behavior.
+
 - Validate cached compute-graph resource access in linear time by recording the distinct pass count during planning. Repeated pass instances and changed physical resource identities still invalidate the cache correctly.
 
 - Limit fragmented uniform uploads to eight partial writes, falling back to one full upload when that budget is exceeded. Dirty-range detection now merges ranges in one scan and allocates nothing for unchanged data.

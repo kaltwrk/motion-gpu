@@ -1021,8 +1021,10 @@ export interface RendererOptions {
 	deviceDescriptor?: GPUDeviceDescriptor | undefined;
 	/**
 	 * Optional callback the renderer invokes when asynchronous pipeline work
-	 * changes what the next frame can render. This includes compute validation,
-	 * dynamically prepared fullscreen passes, and successful ShaderPass recovery.
+	 * changes what the next frame can render. Providing it enables asynchronous
+	 * compute and feedback preparation on supported devices: pending frames keep
+	 * the last submitted image until all managed pipelines have been validated.
+	 * It also covers fullscreen preparation and successful ShaderPass recovery.
 	 * Hosts should treat it as a hint to schedule another render pass.
 	 */
 	requestRender?: (() => void) | undefined;
