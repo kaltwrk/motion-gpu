@@ -3,7 +3,13 @@ import { createRenderer } from '../../../src/lib/core/renderer';
 import type { AnyPass, Renderer } from '../../../src/lib/core/types';
 import { ComputePass } from '../../../src/lib/passes/ComputePass';
 import { ShaderPass } from '../../../src/lib/passes/ShaderPass';
-import { summarizeSamples } from '../real-renderer-results';
+import { PingPongShaderPass } from '../../../src/lib/passes/PingPongShaderPass';
+import { PingPongComputePass } from '../../../src/lib/passes/PingPongComputePass';
+import {
+	assertSteadyStateAllocations,
+	type SteadyStateAllocations,
+	summarizeSamples
+} from '../real-renderer-results';
 
 export interface Stats {
 	samples: number[];
@@ -28,6 +34,7 @@ export interface CorrectnessSink {
 export interface ScenarioResult {
 	name: string;
 	passCount: number;
+	allocations: SteadyStateAllocations;
 	cpuSubmitMs: Stats;
 	queueCompletionMs: Stats;
 	gpuFrameNs: Stats;
@@ -58,6 +65,7 @@ export interface RealRendererBrowserResult {
 		cpuInterval: 'amortized-renderer.render-call';
 		gpuInterval: 'pre-marker-end-to-post-marker-begin';
 		completionInterval: 'before-render-to-onSubmittedWorkDone';
+		managedPipelinePreparation: 'async-readiness-callback';
 	};
 	scenarios: ScenarioResult[];
 }
@@ -179,7 +187,43 @@ function installCanvasReadback(canvas: HTMLCanvasElement): {
 	};
 }
 
-function createPasses(kind: 'no-pass' | 'sixteen-pass' | 'compute'): AnyPass[] {
+type ScenarioName =
+	| 'no-pass'
+	| 'sixteen-pass'
+	| 'compute'
+	| 'feedback-shader-odd'
+	| 'feedback-shader-even'
+	| 'feedback-compute-odd'
+	| 'feedback-compute-even'
+	| 'dynamic-mipmaps';
+
+function createPasses(kind: ScenarioName): AnyPass[] {
+	const iterations = kind.endsWith('even') ? 2 : 1;
+	if (kind.startsWith('feedback-shader'))
+		return [
+			new PingPongShaderPass({
+				target: 'sim',
+				iterations,
+				format: 'rgba8unorm',
+				fragment:
+					'fn frag(uv: vec2f) -> vec4f { return vec4f(0.15 + uv.x * 0.7, 0.2 + uv.y * 0.6, 0.45, 1.0); }'
+			})
+		];
+	if (kind.startsWith('feedback-compute'))
+		return [
+			new PingPongComputePass({
+				iterations,
+				resources: {
+					previous: { texture: 'sim', access: 'sampled', pingPong: 'read' },
+					next: { texture: 'sim', access: 'storage-write', pingPong: 'write' }
+				},
+				compute: `@compute @workgroup_size(8, 8) fn compute(@builtin(global_invocation_id) id: vec3u) {
+			let size = textureDimensions(next);
+			if (id.x < size.x && id.y < size.y) { let uv = (vec2f(id.xy) + vec2f(0.5)) / vec2f(size); textureStore(next, vec2i(id.xy), vec4f(0.15 + uv.x * 0.7, 0.2 + uv.y * 0.6, 0.45, 1.0)); }
+		}`,
+				dispatch: [WIDTH / 8, HEIGHT / 8, 1]
+			})
+		];
 	if (kind === 'sixteen-pass') {
 		return Array.from(
 			{ length: 16 },
@@ -213,16 +257,47 @@ fn compute(@builtin(global_invocation_id) id: vec3u) {
 }
 
 async function createScenarioRenderer(
-	name: 'no-pass' | 'sixteen-pass' | 'compute',
-	canvas: HTMLCanvasElement
+	name: ScenarioName,
+	canvas: HTMLCanvasElement,
+	requestRender: () => void
 ): Promise<{ renderer: Renderer; passes: AnyPass[] }> {
 	const withCompute = name === 'compute';
+	const textured = name.startsWith('feedback-') || name === 'dynamic-mipmaps';
+	const source = document.createElement('canvas');
+	source.width = source.height = 1024;
+	if (name === 'dynamic-mipmaps') {
+		const context = source.getContext('2d')!;
+		const gradient = context.createLinearGradient(0, 0, 1024, 1024);
+		gradient.addColorStop(0, '#204080');
+		gradient.addColorStop(1, '#e0a040');
+		context.fillStyle = gradient;
+		context.fillRect(0, 0, 1024, 1024);
+	}
 	const material = defineMaterial({
-		fragment: `
+		fragment: textured
+			? 'fn frag(uv: vec2f) -> vec4f { return textureSample(sim, simSampler, uv); }'
+			: `
 fn frag(uv: vec2f) -> vec4f {
 	return vec4f(0.15 + uv.x * 0.7, 0.2 + uv.y * 0.6, 0.45, 1.0);
 }
 `,
+		...(textured
+			? {
+					textures: {
+						sim:
+							name === 'dynamic-mipmaps'
+								? {
+										source,
+										generateMipmaps: true,
+										update: 'perFrame' as const,
+										colorSpace: 'linear' as const
+									}
+								: name.startsWith('feedback-compute')
+									? { storage: true, format: 'rgba8unorm' as const, width: WIDTH, height: HEIGHT }
+									: { format: 'rgba8unorm' as const }
+					}
+				}
+			: {}),
 		...(withCompute
 			? {
 					storageBuffers: {
@@ -239,6 +314,7 @@ fn frag(uv: vec2f) -> vec4f {
 	const passes = createPasses(name);
 	const renderer = await createRenderer({
 		canvas,
+		requestRender,
 		fragmentWgsl: resolved.fragmentWgsl,
 		fragmentLineMap: resolved.fragmentLineMap,
 		fragmentSource: resolved.fragmentSource,
@@ -321,13 +397,70 @@ function createTimestampMarker(device: GPUDevice): {
 	};
 }
 
-async function runScenario(name: 'no-pass' | 'sixteen-pass' | 'compute'): Promise<ScenarioResult> {
+function sampleAllocations(device: GPUDevice, render: () => void): SteadyStateAllocations {
+	const counts: SteadyStateAllocations = {
+		frames: 100,
+		bindGroups: 0,
+		textureViews: 0,
+		pipelines: 0
+	};
+	const bindGroup = device.createBindGroup;
+	const renderPipeline = device.createRenderPipeline;
+	const renderPipelineAsync = device.createRenderPipelineAsync;
+	const computePipeline = device.createComputePipeline;
+	const computePipelineAsync = device.createComputePipelineAsync;
+	const createView = GPUTexture.prototype.createView;
+	device.createBindGroup = function (descriptor) {
+		counts.bindGroups++;
+		return bindGroup.call(this, descriptor);
+	};
+	device.createRenderPipeline = function (descriptor) {
+		counts.pipelines++;
+		return renderPipeline.call(this, descriptor);
+	};
+	device.createRenderPipelineAsync = function (descriptor) {
+		counts.pipelines++;
+		return renderPipelineAsync.call(this, descriptor);
+	};
+	device.createComputePipeline = function (descriptor) {
+		counts.pipelines++;
+		return computePipeline.call(this, descriptor);
+	};
+	device.createComputePipelineAsync = function (descriptor) {
+		counts.pipelines++;
+		return computePipelineAsync.call(this, descriptor);
+	};
+	GPUTexture.prototype.createView = function (descriptor) {
+		// Swapchain views are per-frame by contract; count owned sampled/storage resources.
+		if ((this.usage & (GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING)) !== 0)
+			counts.textureViews++;
+		return createView.call(this, descriptor);
+	};
+	try {
+		for (let frame = 0; frame < counts.frames; frame++) render();
+	} finally {
+		device.createBindGroup = bindGroup;
+		device.createRenderPipeline = renderPipeline;
+		device.createRenderPipelineAsync = renderPipelineAsync;
+		device.createComputePipeline = computePipeline;
+		device.createComputePipelineAsync = computePipelineAsync;
+		GPUTexture.prototype.createView = createView;
+	}
+	assertSteadyStateAllocations(counts);
+	return counts;
+}
+
+async function runScenario(name: ScenarioName): Promise<ScenarioResult> {
 	const canvas = document.createElement('canvas');
 	canvas.width = WIDTH;
 	canvas.height = HEIGHT;
 	document.body.replaceChildren(canvas);
 	const readback = installCanvasReadback(canvas);
-	const scenario = await createScenarioRenderer(name, canvas);
+	let signalReady!: () => void;
+	const ready = new Promise<void>((resolve) => {
+		signalReady = resolve;
+	});
+	const scenario = await createScenarioRenderer(name, canvas, signalReady);
 	const { renderer, passes } = scenario;
 	const device = renderer.getDevice?.();
 	if (!device) {
@@ -346,6 +479,49 @@ async function runScenario(name: 'no-pass' | 'sixteen-pass' | 'compute'): Promis
 		});
 	};
 	try {
+		if (name === 'compute' || name.startsWith('feedback-')) {
+			// Each of these scenarios prepares one managed pipeline. Its readiness
+			// callback waits for compilation and validation before warmup starts.
+			let pipelineCalls = 0;
+			const methods = [
+				'createComputePipeline',
+				'createComputePipelineAsync',
+				'createRenderPipeline',
+				'createRenderPipelineAsync'
+			] as const;
+			const restore: Array<() => void> = [];
+			for (const method of methods) {
+				const original = device[method];
+				Reflect.set(device, method, (...args: unknown[]) => {
+					pipelineCalls++;
+					return Reflect.apply(original, device, args);
+				});
+				restore.push(() => {
+					Reflect.set(device, method, original);
+				});
+			}
+			try {
+				render();
+			} finally {
+				for (const reset of restore) reset();
+			}
+			if (pipelineCalls !== 0)
+				throw new Error(`Managed pipeline compilation ran inside render(): ${name}`);
+			let timeout: ReturnType<typeof setTimeout> | undefined;
+			try {
+				await Promise.race([
+					ready,
+					new Promise<never>((_, reject) => {
+						timeout = setTimeout(
+							() => reject(new Error(`Pipeline readiness timed out: ${name}`)),
+							15_000
+						);
+					})
+				]);
+			} finally {
+				clearTimeout(timeout);
+			}
+		}
 		for (let index = 0; index < WARMUP_FRAMES; index += 1) {
 			render();
 			await device.queue.onSubmittedWorkDone();
@@ -390,8 +566,11 @@ async function runScenario(name: 'no-pass' | 'sixteen-pass' | 'compute'): Promis
 				`Compute correctness sentinel did not advance: before=${computeSentinelBefore}, after=${String(computeSentinelAfter)}`
 			);
 		}
+		const allocations = sampleAllocations(device, render);
+		await device.queue.onSubmittedWorkDone();
 		return {
 			name,
+			allocations,
 			passCount: passes.length,
 			cpuSubmitMs: summarizeSamples(cpuSubmitSamples),
 			queueCompletionMs: summarizeSamples(queueCompletionSamples),
@@ -470,12 +649,18 @@ async function run(): Promise<RealRendererBrowserResult> {
 			cpuFramesPerBatch: CPU_FRAMES_PER_BATCH,
 			cpuInterval: 'amortized-renderer.render-call',
 			gpuInterval: 'pre-marker-end-to-post-marker-begin',
-			completionInterval: 'before-render-to-onSubmittedWorkDone'
+			completionInterval: 'before-render-to-onSubmittedWorkDone',
+			managedPipelinePreparation: 'async-readiness-callback'
 		},
 		scenarios: [
 			await runScenario('no-pass'),
 			await runScenario('sixteen-pass'),
-			await runScenario('compute')
+			await runScenario('compute'),
+			await runScenario('feedback-shader-odd'),
+			await runScenario('feedback-shader-even'),
+			await runScenario('feedback-compute-odd'),
+			await runScenario('feedback-compute-even'),
+			await runScenario('dynamic-mipmaps')
 		]
 	};
 }

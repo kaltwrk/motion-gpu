@@ -8,10 +8,20 @@ import type {
 import {
 	aggregateScenarios,
 	aggregateStats,
+	assertSteadyStateAllocations,
 	compareScenarioContracts,
 	extractRealRendererMetrics,
 	realRendererMetricRules
 } from './real-renderer-results';
+
+test('rejects real-renderer allocation churn and missing samples', () => {
+	const clean = { frames: 100, bindGroups: 0, textureViews: 0, pipelines: 0 };
+	assert.doesNotThrow(() => assertSteadyStateAllocations(clean));
+	for (const field of ['bindGroups', 'textureViews', 'pipelines'] as const) {
+		assert.throws(() => assertSteadyStateAllocations({ ...clean, [field]: 1 }), /allocation/iu);
+	}
+	assert.throws(() => assertSteadyStateAllocations({ ...clean, frames: 0 }), /samples/iu);
+});
 
 function stats(samples: number[], median: number): Stats {
 	return {
@@ -29,6 +39,7 @@ function scenario(checksum: number, offset: number): ScenarioResult {
 	return {
 		name: 'sixteen-pass',
 		passCount: 16,
+		allocations: { frames: 100, bindGroups: 0, textureViews: 0, pipelines: 0 },
 		cpuSubmitMs: stats([1 + offset, 2 + offset], 1.5 + offset),
 		queueCompletionMs: stats([3 + offset, 4 + offset], 3.5 + offset),
 		gpuFrameNs: stats([5 + offset, 6 + offset], 5.5 + offset),
@@ -68,7 +79,8 @@ function browserResult(result: ScenarioResult): RealRendererBrowserResult {
 			cpuFramesPerBatch: 2,
 			cpuInterval: 'amortized-renderer.render-call',
 			gpuInterval: 'pre-marker-end-to-post-marker-begin',
-			completionInterval: 'before-render-to-onSubmittedWorkDone'
+			completionInterval: 'before-render-to-onSubmittedWorkDone',
+			managedPipelinePreparation: 'async-readiness-callback'
 		},
 		scenarios: [result]
 	};

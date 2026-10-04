@@ -3,6 +3,10 @@ export class FrameStateTransaction {
 	private readonly undo: Array<() => void> = [];
 	private readonly submitted: Array<() => void> = [];
 
+	onRollback(callback: () => void): void {
+		this.undo.push(callback);
+	}
+
 	capture<T extends object>(state: T): void {
 		const previous = { ...state };
 		this.undo.push(() => {

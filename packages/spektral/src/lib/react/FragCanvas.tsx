@@ -73,6 +73,7 @@ interface RuntimePropsSnapshot {
 }
 
 interface FragCanvasRuntimeState {
+	defaults: Pick<RuntimePropsSnapshot, 'renderTargets' | 'passes' | 'clearColor'>;
 	registry: ReturnType<typeof createFrameRegistry>;
 	context: SpektralContext;
 	canvasRef: { current: HTMLCanvasElement | undefined };
@@ -159,6 +160,7 @@ function createRuntimeState(initialDpr: number): FragCanvasRuntimeState {
 	};
 
 	return {
+		defaults: { renderTargets: {}, passes: [], clearColor: [0, 0, 0, 1] },
 		registry,
 		context,
 		canvasRef,
@@ -197,9 +199,9 @@ function setExternalRef<T>(ref: Ref<T> | undefined, value: T | null): (() => voi
 
 export function FragCanvas({
 	material,
-	renderTargets = {},
-	passes = [],
-	clearColor = [0, 0, 0, 1],
+	renderTargets: providedRenderTargets,
+	passes: providedPasses,
+	clearColor: providedClearColor,
 	color = undefined,
 	renderMode = 'always',
 	autoRender = true,
@@ -228,6 +230,9 @@ export function FragCanvas({
 		runtimeRef.current = createRuntimeState(getInitialDpr());
 	}
 	const runtime = runtimeRef.current;
+	const renderTargets = providedRenderTargets ?? runtime.defaults.renderTargets;
+	const passes = providedPasses ?? runtime.defaults.passes;
+	const clearColor = providedClearColor ?? runtime.defaults.clearColor;
 
 	const runtimePropsRef = useRef<RuntimePropsSnapshot>({
 		material,

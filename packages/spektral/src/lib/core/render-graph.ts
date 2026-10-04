@@ -78,6 +78,8 @@ export interface RenderGraphPlan {
 	 * Enabled compute steps. These always execute before the base scene render.
 	 */
 	computeSteps: RenderGraphStep[];
+	/** Number of distinct compute pass identities captured while planning. */
+	readonly uniqueComputePassCount: number;
 	/**
 	 * Enabled render steps. These always execute after the base scene render.
 	 */
@@ -141,17 +143,8 @@ export function hasSameRenderGraphPhysicalAccessSignature(
 	plan: RenderGraphPlan,
 	resolvedByPass: ReadonlyMap<AnyPass, ResolvedComputePassResources>
 ): boolean {
-	let uniquePassCount = 0;
-	for (let index = 0; index < plan.computeSteps.length; index += 1) {
-		const step = plan.computeSteps[index]!;
-		let seenEarlier = false;
-		for (let previousIndex = 0; previousIndex < index; previousIndex += 1) {
-			if (plan.computeSteps[previousIndex]?.pass === step.pass) {
-				seenEarlier = true;
-				break;
-			}
-		}
-		if (!seenEarlier) uniquePassCount += 1;
+	if (plan.uniqueComputePassCount !== resolvedByPass.size) return false;
+	for (const step of plan.computeSteps) {
 		const previous = step.resolvedResources;
 		const current = resolvedByPass.get(step.pass);
 		if (
@@ -163,7 +156,7 @@ export function hasSameRenderGraphPhysicalAccessSignature(
 			return false;
 		}
 	}
-	return uniquePassCount === resolvedByPass.size;
+	return true;
 }
 
 /**
@@ -388,11 +381,13 @@ export function planRenderGraph(
 		: { steps: preSceneSteps, edges: [] };
 	const orderedPreSceneSteps = computePlan.steps;
 	const orderedComputeSteps = orderedPreSceneSteps.filter((step) => step.kind === 'compute');
+	const effectiveComputeSteps = computeOptions ? orderedComputeSteps : computeSteps;
 
 	return {
 		steps,
 		preSceneSteps: orderedPreSceneSteps,
-		computeSteps: computeOptions ? orderedComputeSteps : computeSteps,
+		computeSteps: effectiveComputeSteps,
+		uniqueComputePassCount: new Set(effectiveComputeSteps.map((step) => step.pass)).size,
 		renderSteps,
 		finalOutput,
 		dependencyEdges: computePlan.edges

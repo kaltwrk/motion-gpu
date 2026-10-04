@@ -12,6 +12,7 @@
 				setMode: (mode: RenderMode) => void;
 				invalidate: () => void;
 				advance: () => void;
+				setTaskActive: (active: boolean) => void;
 			};
 		};
 
@@ -72,7 +73,8 @@ fn frag(uv: vec2f) -> vec4f {
 		perfWindow.__SPEKTRAL_PERF__ = {
 			setMode,
 			invalidate: controls.invalidate,
-			advance: controls.advance
+			advance: controls.advance,
+			setTaskActive: controls.setTaskActive
 		};
 
 		return () => {
@@ -116,6 +118,7 @@ fn frag(uv: vec2f) -> vec4f {
 	<div class="canvas-shell">
 		<FragCanvas {material} {passes} showErrorOverlay={false} onError={handleError}>
 			<RuntimeProbe
+				passive
 				onFrame={(count) => {
 					schedulerCount = count;
 				}}

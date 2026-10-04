@@ -10,6 +10,68 @@ test.beforeEach(async ({ page }) => {
 	await page.goto('/resource-lifecycle-proof');
 });
 
+test('resizing chained shader feedback preserves valid textures and initialization', async ({
+	page
+}) => {
+	const result = await page.evaluate(async (url) => {
+		const proof: typeof import('../resource-lifecycle-proof') = await import(
+			/* @vite-ignore */ url
+		);
+		return proof.readFeedbackResize();
+	}, proofUrl);
+	const expected = [96, 128, 96, 128];
+	expect(result).toHaveLength(expected.length);
+	result.forEach((value, index) =>
+		expect(Math.abs(value - expected[index]!)).toBeLessThanOrEqual(1)
+	);
+});
+
+test('render targets recover after an invalid resize is reverted', async ({ page }) => {
+	const result = await page.evaluate(async (url) => {
+		const proof: typeof import('../resource-lifecycle-proof') = await import(
+			/* @vite-ignore */ url
+		);
+		return proof.readRenderTargetRecovery();
+	}, proofUrl);
+	expect(result.failure).toContain('maxTextureDimension2D');
+	expect(result.before).toEqual([0, 255, 0, 255]);
+	expect(result.recovered).toEqual([result.before, result.before]);
+});
+
+test('colliding storage initial data reaches the GPU after a material change', async ({ page }) => {
+	const result = await page.evaluate(async (url) => {
+		const proof: typeof import('../resource-lifecycle-proof') = await import(
+			/* @vite-ignore */ url
+		);
+		return proof.readCollidingStorageData();
+	}, proofUrl);
+	expect(result).toEqual({
+		first: [1364945411, 3212416462],
+		replacement: [2409582172, 2899006390],
+		restored: [1364945411, 3212416462],
+		reports: []
+	});
+});
+
+for (const writingMode of ['horizontal-tb', 'vertical-rl', 'vertical-lr']) {
+	test(`canvas uses physical content dimensions in ${writingMode}`, async ({ page }) => {
+		const result = await page.evaluate(
+			async ({ url, writingMode }) => {
+				const proof: typeof import('../resource-lifecycle-proof') = await import(
+					/* @vite-ignore */ url
+				);
+				return proof.readCanvasWritingMode(writingMode);
+			},
+			{ url: proofUrl, writingMode }
+		);
+		expect(result).toEqual({
+			observed: { width: 120, height: 40 },
+			backing: { width: 120, height: 40 },
+			reports: []
+		});
+	});
+}
+
 for (const premultipliedAlpha of [true, false]) {
 	test(`texture upload honors initial and runtime premultipliedAlpha=${premultipliedAlpha}`, async ({
 		page

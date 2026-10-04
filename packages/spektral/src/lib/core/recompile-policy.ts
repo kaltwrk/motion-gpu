@@ -120,3 +120,28 @@ export function buildRendererPipelineSignature(input: RendererPipelineSignatureI
 		deviceDescriptor: normalizeDeviceDescriptor(input.deviceDescriptor)
 	});
 }
+
+/** Per-runtime signature cache; mutable options are still normalized on every check. */
+export function createRendererPipelineSignatureResolver(): (
+	input: RendererPipelineSignatureInput,
+	storageRevision: number
+) => string {
+	let material: string | undefined;
+	let configuration: string | undefined;
+	let revision = -1;
+	let signature = '';
+	return (input, storageRevision) => {
+		const nextConfiguration = buildRendererPipelineSignature({ ...input, materialSignature: '' });
+		if (
+			material !== input.materialSignature ||
+			configuration !== nextConfiguration ||
+			revision !== storageRevision
+		) {
+			material = input.materialSignature;
+			configuration = nextConfiguration;
+			revision = storageRevision;
+			signature = JSON.stringify({ materialSignature: material, configuration, storageRevision });
+		}
+		return signature;
+	};
+}

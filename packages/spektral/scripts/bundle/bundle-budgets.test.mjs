@@ -21,11 +21,13 @@ function fixture(metric = { minifiedBytes: 10_000, gzipBytes: 5_000 }) {
 	};
 }
 
-test('requires both more than five percent and more than one KiB growth', () => {
+test('requires both more than 7.5 percent and more than one KiB growth', () => {
 	assert.equal(isBudgetRegression(10_000, 11_024), false);
 	assert.equal(isBudgetRegression(10_000, 11_025), true);
 	assert.equal(isBudgetRegression(100_000, 102_000), false);
-	assert.equal(isBudgetRegression(100_000, 106_000), true);
+	assert.equal(isBudgetRegression(100_000, 106_000), false);
+	assert.equal(isBudgetRegression(100_000, 107_500), false);
+	assert.equal(isBudgetRegression(100_000, 107_501), true);
 });
 
 test('reports entrypoint and asset budget regressions with exact deltas', () => {

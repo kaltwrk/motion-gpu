@@ -4,7 +4,7 @@ import { createFrameRegistry } from '../../lib/core/frame-registry';
 import { defineMaterial, resolveMaterial } from '../../lib/core/material';
 import { attachShaderCompilationDiagnostics } from '../../lib/core/error-diagnostics';
 import { packUniformsIntoFast } from '../../lib/core/uniforms';
-import type { UniformValue } from '../../lib/core/types';
+import type { UniformValue, ColorPipelineOptions } from '../../lib/core/types';
 
 const { createRendererMock } = vi.hoisted(() => ({
 	createRendererMock: vi.fn()
@@ -667,53 +667,119 @@ describe('runtime-loop', () => {
 		expect(lateRenderer.destroy).toHaveBeenCalledTimes(1);
 	});
 
-	it('renders async renderer readiness in manual mode without another user advance', async () => {
-		const registry = createFrameRegistry({ renderMode: 'manual' });
-		let requestRendererFrame: (() => void) | undefined;
-		const renderer: MockRenderer = {
-			render: vi.fn(),
-			destroy: vi.fn()
-		};
-		renderer.render.mockImplementationOnce(() => {
-			Promise.resolve().then(() => requestRendererFrame?.());
-		});
-		createRendererMock.mockImplementation(
-			async (options: { requestRender?: () => void }): Promise<MockRenderer> => {
-				requestRendererFrame = options.requestRender;
-				return renderer;
-			}
-		);
+	it.each(['manual', 'on-demand'] as const)(
+		'renders async renderer readiness in %s mode without another user advance',
+		async (renderMode) => {
+			const registry = createFrameRegistry({ renderMode });
+			let requestRendererFrame: (() => void) | undefined;
+			const renderer: MockRenderer = {
+				render: vi.fn(),
+				destroy: vi.fn()
+			};
+			createRendererMock.mockImplementation(
+				async (options: { requestRender?: () => void }): Promise<MockRenderer> => {
+					requestRendererFrame = options.requestRender;
+					return renderer;
+				}
+			);
 
+			const loop = createSpektralRuntimeLoop({
+				canvas: createCanvas(),
+				registry,
+				size: createCurrentWritable({ width: 0, height: 0 }),
+				dpr: { current: 1, subscribe: () => () => undefined },
+				maxDelta: { current: 1, subscribe: () => () => undefined },
+				getMaterial: () =>
+					defineMaterial({
+						fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }'
+					}),
+				getRenderTargets: () => ({}),
+				getPasses: () => [],
+				getClearColor: () => [0, 0, 0, 1],
+				getAdapterOptions: () => undefined,
+				getDeviceDescriptor: () => undefined,
+				getOnError: () => undefined,
+				reportError: () => undefined
+			});
+
+			await flushFrame(16); // renderer initialization
+			await flushFrame(32); // settle the initial on-demand frame
+			renderer.render.mockClear();
+			renderer.render.mockImplementationOnce(() => {
+				Promise.resolve().then(() => requestRendererFrame?.());
+			});
+
+			loop.advance();
+			await flushFrame(48); // first frame discovers pending async renderer work
+			expect(renderer.render).toHaveBeenCalledTimes(1);
+			expect(rafQueue).toHaveLength(1);
+
+			await flushFrame(64); // readiness callback must render, not just run another RAF
+			expect(renderer.render).toHaveBeenCalledTimes(2);
+			if (renderMode === 'on-demand') await flushFrame(80); // final idle scheduling check
+			expect(renderer.render).toHaveBeenCalledTimes(2);
+			expect(rafQueue).toHaveLength(0);
+			loop.destroy();
+		}
+	);
+
+	it('does not serialize unchanged WGSL each frame and detects mutations inside renderer options', async () => {
+		const fragment =
+			'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }\n//' + 'x'.repeat(128 * 1024);
+		const material = defineMaterial({ fragment });
+		const renderer: MockRenderer = { render: vi.fn(), destroy: vi.fn() };
+		createRendererMock.mockResolvedValue(renderer);
+		const color: ColorPipelineOptions = { outputEncoding: 'srgb' };
+		const features = new Set<GPUFeatureName>();
+		const limits = { maxTextureDimension2D: 1024 };
+		const adapter: GPURequestAdapterOptions = { powerPreference: 'low-power' };
 		const loop = createSpektralRuntimeLoop({
 			canvas: createCanvas(),
-			registry,
-			size: createCurrentWritable({ width: 0, height: 0 }),
-			dpr: { current: 1, subscribe: () => () => undefined },
-			maxDelta: { current: 1, subscribe: () => () => undefined },
-			getMaterial: () =>
-				defineMaterial({
-					fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }'
-				}),
+			registry: createFrameRegistry(),
+			size: createCurrentWritable({ width: 16, height: 9 }),
+			dpr: createCurrentWritable(1),
+			maxDelta: createCurrentWritable(0.1),
+			getMaterial: () => material,
 			getRenderTargets: () => ({}),
 			getPasses: () => [],
 			getClearColor: () => [0, 0, 0, 1],
-			getAdapterOptions: () => undefined,
-			getDeviceDescriptor: () => undefined,
+			getColor: () => color,
+			getAdapterOptions: () => adapter,
+			getDeviceDescriptor: () => ({ requiredFeatures: features, requiredLimits: limits }),
 			getOnError: () => undefined,
-			reportError: () => undefined
+			reportError: vi.fn()
 		});
-
-		await flushFrame(16); // renderer initialization
-		await flushFrame(32); // manual mode remains idle
-		expect(renderer.render).not.toHaveBeenCalled();
-
-		loop.advance();
-		await flushFrame(48); // first frame discovers pending async renderer work
-		expect(renderer.render).toHaveBeenCalledTimes(1);
-		expect(rafQueue).toHaveLength(1);
-
-		await flushFrame(64); // readiness callback must render, not just run another RAF
-		expect(renderer.render).toHaveBeenCalledTimes(2);
+		await flushFrame(16);
+		await flushFrame(32);
+		const stringify = vi.spyOn(JSON, 'stringify');
+		for (let frame = 0; frame < 20; frame++) await flushFrame(48 + frame * 16);
+		const serializedSources = stringify.mock.calls.filter(
+			([value]) =>
+				typeof value?.materialSignature === 'string' && value.materialSignature.length > 128 * 1024
+		);
+		expect(serializedSources).toHaveLength(0);
+		expect(createRendererMock).toHaveBeenCalledOnce();
+		for (const mutate of [
+			() => {
+				color.outputEncoding = 'linear';
+			},
+			() => {
+				features.add('shader-f16');
+			},
+			() => {
+				limits.maxTextureDimension2D = 2048;
+			},
+			() => {
+				adapter.powerPreference = 'high-performance';
+			}
+		]) {
+			const count = createRendererMock.mock.calls.length;
+			mutate();
+			loop.invalidate();
+			await flushFrame(500);
+			await flushFrame(516);
+			expect(createRendererMock).toHaveBeenCalledTimes(count + 1);
+		}
 		loop.destroy();
 	});
 
@@ -772,6 +838,69 @@ describe('runtime-loop', () => {
 		});
 
 		loop.destroy();
+	});
+
+	it('rebuilds colliding storage data but reuses identical material bytes', async () => {
+		const first = [1364945411, 3212416462];
+		const colliding = [2409582172, 2899006390];
+		const makeMaterial = (values: number[]) =>
+			defineMaterial({
+				fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }',
+				storageBuffers: {
+					data: { size: 8, type: 'array<u32>', initialData: new Uint32Array(values) }
+				}
+			});
+		const a = makeMaterial(first);
+		const aCopy = makeMaterial(first);
+		const b = makeMaterial(colliding);
+		const bCopy = makeMaterial(colliding);
+		// These distinct byte sequences collide under the compact FNV-1a fingerprint.
+		expect(resolveMaterial(a).signature).toBe(resolveMaterial(b).signature);
+		resolveMaterial(aCopy);
+		resolveMaterial(bCopy);
+		const renderer = () => ({ render: vi.fn(), destroy: vi.fn(), flushStorageWrites: vi.fn() });
+		createRendererMock.mockImplementation(async () => renderer());
+		let material = a;
+		const loop = createSpektralRuntimeLoop({
+			canvas: createCanvas(),
+			registry: createFrameRegistry(),
+			size: createCurrentWritable({ width: 0, height: 0 }),
+			dpr: createCurrentWritable(1),
+			maxDelta: createCurrentWritable(1),
+			getMaterial: () => material,
+			getRenderTargets: () => ({}),
+			getPasses: () => [],
+			getClearColor: () => [0, 0, 0, 1],
+			getAdapterOptions: () => undefined,
+			getDeviceDescriptor: () => undefined,
+			getOnError: () => undefined,
+			reportError: vi.fn()
+		});
+		try {
+			await flushFrame(16);
+			await flushFrame(32);
+			material = aCopy;
+			await flushFrame(48);
+			expect(createRendererMock).toHaveBeenCalledTimes(1);
+			material = b;
+			await flushFrame(64);
+			expect(createRendererMock).toHaveBeenCalledTimes(2);
+			expect(
+				Array.from(createRendererMock.mock.lastCall![0].storageBufferDefinitions.data.initialData)
+			).toEqual(colliding);
+			await flushFrame(80);
+			material = bCopy;
+			await flushFrame(96);
+			expect(createRendererMock).toHaveBeenCalledTimes(2);
+			material = a;
+			await flushFrame(112);
+			expect(createRendererMock).toHaveBeenCalledTimes(3);
+			expect(
+				Array.from(createRendererMock.mock.lastCall![0].storageBufferDefinitions.data.initialData)
+			).toEqual(first);
+		} finally {
+			loop.destroy();
+		}
 	});
 
 	it('rebuilds renderer when storage buffer initialData changes with the same layout', async () => {
@@ -1297,10 +1426,13 @@ describe('runtime-loop resize behavior', () => {
 	let mockROInstances: MockRO[] = [];
 	let rafQueue2: FrameRequestCallback[] = [];
 
-	function fireMockRO(instance: MockRO, inlineSize: number, blockSize: number): void {
+	function fireMockRO(instance: MockRO, width: number, height: number, vertical = false): void {
 		instance.callback([
 			{
-				contentBoxSize: [{ inlineSize, blockSize }]
+				contentBoxSize: [
+					{ inlineSize: vertical ? height : width, blockSize: vertical ? width : height }
+				],
+				contentRect: { width, height }
 			} as unknown as ResizeObserverEntry
 		]);
 	}
@@ -1388,50 +1520,53 @@ describe('runtime-loop resize behavior', () => {
 		expect(mockROInstances[0]!.disconnect).toHaveBeenCalledTimes(1);
 	});
 
-	it('uses ResizeObserver dimensions instead of getBoundingClientRect when available', async () => {
-		const getBoundingClientRectSpy = vi.fn(() => ({ width: 99, height: 99 }));
-		const canvas = {
-			width: 0,
-			height: 0,
-			getBoundingClientRect: getBoundingClientRectSpy,
-			getContext: () => null
-		} as unknown as HTMLCanvasElement;
+	it.each([false, true])(
+		'uses physical ResizeObserver dimensions without a layout read (vertical=%s)',
+		async (vertical) => {
+			const getBoundingClientRectSpy = vi.fn(() => ({ width: 99, height: 99 }));
+			const canvas = {
+				width: 0,
+				height: 0,
+				getBoundingClientRect: getBoundingClientRectSpy,
+				getContext: () => null
+			} as unknown as HTMLCanvasElement;
 
-		const size = createCurrentWritable({ width: 0, height: 0 });
-		const registry = createFrameRegistry();
-		const renderer = { render: vi.fn(), destroy: vi.fn() };
-		createRendererMock.mockResolvedValue(renderer);
+			const size = createCurrentWritable({ width: 0, height: 0 });
+			const registry = createFrameRegistry();
+			const renderer = { render: vi.fn(), destroy: vi.fn() };
+			createRendererMock.mockResolvedValue(renderer);
 
-		const loop = createSpektralRuntimeLoop({
-			canvas,
-			registry,
-			size,
-			dpr: { current: 1, subscribe: () => () => undefined },
-			maxDelta: { current: 1, subscribe: () => () => undefined },
-			getMaterial: () => material,
-			getRenderTargets: () => ({}),
-			getPasses: () => [],
-			getClearColor: () => [0, 0, 0, 1],
-			getAdapterOptions: () => undefined,
-			getDeviceDescriptor: () => undefined,
-			getOnError: () => undefined,
-			reportError: () => undefined
-		});
+			const loop = createSpektralRuntimeLoop({
+				canvas,
+				registry,
+				size,
+				dpr: { current: 1, subscribe: () => () => undefined },
+				maxDelta: { current: 1, subscribe: () => () => undefined },
+				getMaterial: () => material,
+				getRenderTargets: () => ({}),
+				getPasses: () => [],
+				getClearColor: () => [0, 0, 0, 1],
+				getAdapterOptions: () => undefined,
+				getDeviceDescriptor: () => undefined,
+				getOnError: () => undefined,
+				reportError: () => undefined
+			});
 
-		// Fire ResizeObserver with explicit dimensions
-		fireMockRO(mockROInstances[0]!, 320, 240);
+			// Fire ResizeObserver with explicit dimensions
+			fireMockRO(mockROInstances[0]!, 320, 240, vertical);
 
-		// Flush the frame scheduled by the ResizeObserver callback
-		await flushFrame2(16);
-		await flushFrame2(32);
+			// Flush the frame scheduled by the ResizeObserver callback
+			await flushFrame2(16);
+			await flushFrame2(32);
 
-		// getBoundingClientRect must NOT be called during normal frame rendering
-		// when ResizeObserver has already provided dimensions.
-		expect(getBoundingClientRectSpy).not.toHaveBeenCalled();
-		expect(size.current).toEqual({ width: 320, height: 240 });
+			// getBoundingClientRect must NOT be called during normal frame rendering
+			// when ResizeObserver has already provided dimensions.
+			expect(getBoundingClientRectSpy).not.toHaveBeenCalled();
+			expect(size.current).toEqual({ width: 320, height: 240 });
 
-		loop.destroy();
-	});
+			loop.destroy();
+		}
+	);
 
 	it('uses ResizeObserver contentRect dimensions when contentBoxSize is unavailable', async () => {
 		const getBoundingClientRectSpy = vi.fn(() => ({ width: 99, height: 99 }));

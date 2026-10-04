@@ -1,12 +1,17 @@
 import type { CurrentReadable, CurrentWritable } from './current-value.js';
-import { resolveMaterial, type FragMaterial, type ResolvedMaterial } from './material.js';
+import {
+	hasSameStorageBufferInitialData,
+	resolveMaterial,
+	type FragMaterial,
+	type ResolvedMaterial
+} from './material.js';
 import {
 	toSpektralErrorReport,
 	type SpektralErrorPhase,
 	type SpektralErrorReport
 } from './error-report.js';
 import { createRenderer } from './renderer.js';
-import { buildRendererPipelineSignature } from './recompile-policy.js';
+import { createRendererPipelineSignatureResolver } from './recompile-policy.js';
 import { assertUniformValueForType } from './uniforms.js';
 import { getFrameScheduling, type FrameRegistry } from './frame-registry.js';
 import type {
@@ -94,6 +99,7 @@ export function createSpektralRuntimeLoop(
 ): SpektralRuntimeLoop {
 	const { canvas: canvasElement, registry, size } = options;
 	const frameScheduling = getFrameScheduling(registry);
+	const resolveRendererSignature = createRendererPipelineSignatureResolver();
 	let frameId: number | null = null;
 	let retryTimerId: ReturnType<typeof setTimeout> | null = null;
 	let errorClearTimerId: ReturnType<typeof setTimeout> | null = null;
@@ -117,15 +123,9 @@ export function createSpektralRuntimeLoop(
 				return;
 			}
 
-			const boxSize = entry.contentBoxSize?.[0];
-			if (boxSize) {
-				observedCssWidth = Math.max(0, Math.floor(boxSize.inlineSize));
-				observedCssHeight = Math.max(0, Math.floor(boxSize.blockSize));
-			} else {
-				// Fallback for browsers without contentBoxSize support.
-				observedCssWidth = Math.max(0, Math.floor(entry.contentRect.width));
-				observedCssHeight = Math.max(0, Math.floor(entry.contentRect.height));
-			}
+			// Canvas resolution uses physical axes; inline/block swap in vertical writing modes.
+			observedCssWidth = Math.max(0, Math.floor(entry.contentRect.width));
+			observedCssHeight = Math.max(0, Math.floor(entry.contentRect.height));
 
 			if (!isDisposed) {
 				scheduleFrame();
@@ -164,6 +164,7 @@ export function createSpektralRuntimeLoop(
 	let storageBufferKeys: readonly string[] = [];
 	let storageBufferKeySet = new Set<string>();
 	let storageBufferDefinitions: Readonly<StorageBufferDefinitionMap> = {};
+	let storageDataRevision = 0;
 	const pendingStorageWrites: PendingStorageWrite[] = [];
 	let shouldContinueAfterFrame = false;
 	let activeErrorKey: string | null = null;
@@ -391,6 +392,19 @@ export function createSpektralRuntimeLoop(
 		materialStorageBuffers: Readonly<StorageBufferDefinitionMap>
 	): void => {
 		const signatureChanged = activeMaterialSignature !== materialState.signature;
+		if (
+			!signatureChanged &&
+			!hasSameStorageBufferInitialData(
+				storageBufferDefinitions,
+				materialStorageBuffers,
+				materialState.storageBufferKeys
+			)
+		) {
+			// A compact hash match cannot prove byte equality. Keep retries and
+			// asynchronous renderer rebuilds distinct when initial data collides.
+			storageDataRevision += 1;
+		}
+		storageBufferDefinitions = materialStorageBuffers;
 		const defaultsChanged =
 			activeUniforms !== materialState.uniforms || activeTextures !== materialState.textures;
 
@@ -424,7 +438,6 @@ export function createSpektralRuntimeLoop(
 		textureKeySet = new Set(textureKeys);
 		storageBufferKeys = materialState.storageBufferKeys;
 		storageBufferKeySet = new Set(storageBufferKeys);
-		storageBufferDefinitions = materialStorageBuffers;
 		resetRuntimeMaps();
 		resetRenderPayloadMaps();
 		activeMaterialSignature = materialState.signature;
@@ -571,13 +584,16 @@ export function createSpektralRuntimeLoop(
 		const color = options.getColor?.();
 		const adapterOptions = options.getAdapterOptions();
 		const deviceDescriptor = options.getDeviceDescriptor();
-		const rendererSignature = buildRendererPipelineSignature({
-			materialSignature: materialState.signature,
-			...(color !== undefined ? { color } : {}),
-			...(adapterOptions !== undefined ? { adapterOptions } : {}),
-			...(deviceDescriptor !== undefined ? { deviceDescriptor } : {})
-		});
 		syncMaterialRuntimeState(materialState, materialDeclaration.storageBuffers);
+		const rendererSignature = resolveRendererSignature(
+			{
+				materialSignature: materialState.signature,
+				...(color !== undefined ? { color } : {}),
+				...(adapterOptions !== undefined ? { adapterOptions } : {}),
+				...(deviceDescriptor !== undefined ? { deviceDescriptor } : {})
+			},
+			storageDataRevision
+		);
 
 		if (failedRendererSignature && failedRendererSignature !== rendererSignature) {
 			failedRendererSignature = null;

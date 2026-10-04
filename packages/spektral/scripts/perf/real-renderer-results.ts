@@ -6,6 +6,25 @@ import type {
 import type { BenchmarkMetricRule } from './benchmark-regression';
 import { computeRobustStats, quantile, type RobustStats } from './statistics';
 
+export interface SteadyStateAllocations {
+	frames: number;
+	bindGroups: number;
+	textureViews: number;
+	pipelines: number;
+}
+
+export function assertSteadyStateAllocations(allocations: SteadyStateAllocations): void {
+	if (!Number.isInteger(allocations.frames) || allocations.frames < 1)
+		throw new Error('Missing allocation samples');
+	if (
+		allocations.bindGroups !== 0 ||
+		allocations.textureViews !== 0 ||
+		allocations.pipelines !== 0
+	) {
+		throw new Error(`Unexpected steady-state GPU allocations: ${JSON.stringify(allocations)}`);
+	}
+}
+
 export interface AggregatedStats extends Stats {
 	runMedians: RobustStats;
 }
@@ -74,6 +93,7 @@ export function aggregateScenarios(results: RealRendererBrowserResult[]): Aggreg
 					!match ||
 					match.name !== scenario.name ||
 					match.passCount !== scenario.passCount ||
+					JSON.stringify(match.allocations) !== JSON.stringify(scenario.allocations) ||
 					match.correctness.after !== scenario.correctness.after ||
 					match.correctness.pixelCount !== scenario.correctness.pixelCount ||
 					match.correctness.computeSentinelAfter !== scenario.correctness.computeSentinelAfter
@@ -87,6 +107,7 @@ export function aggregateScenarios(results: RealRendererBrowserResult[]): Aggreg
 		return {
 			name: scenario.name,
 			passCount: scenario.passCount,
+			allocations: scenario.allocations,
 			cpuSubmitMs: aggregateStats(completeMatches.map((match) => match.cpuSubmitMs)),
 			queueCompletionMs: aggregateStats(completeMatches.map((match) => match.queueCompletionMs)),
 			gpuFrameNs: aggregateStats(completeMatches.map((match) => match.gpuFrameNs)),

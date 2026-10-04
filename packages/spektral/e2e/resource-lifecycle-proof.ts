@@ -4,12 +4,22 @@ import { createSpektralRuntimeLoop } from '../src/lib/core/runtime-loop';
 import { BlitPass } from '../src/lib/passes/BlitPass';
 import { defineMaterial, resolveMaterial, type FragMaterial } from '../src/lib/core/material';
 import { createRenderer } from '../src/lib/core/renderer';
-import type { AnyPass, RenderPassContext, TextureMap } from '../src/lib/core/types';
+import type {
+	AnyPass,
+	FrameState,
+	RenderPassContext,
+	RenderTargetDefinitionMap,
+	TextureMap
+} from '../src/lib/core/types';
 import { ComputePass } from '../src/lib/passes/ComputePass';
 import { PingPongComputePass } from '../src/lib/passes/PingPongComputePass';
 import { PingPongShaderPass } from '../src/lib/passes/PingPongShaderPass';
 
-async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
+async function createProofRenderer(
+	material: FragMaterial,
+	passes: AnyPass[],
+	getRenderTargets?: () => RenderTargetDefinitionMap
+) {
 	const canvas = document.createElement('canvas');
 	const resolved = resolveMaterial(material);
 	const renderer = await createRenderer({
@@ -23,6 +33,7 @@ async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
 		textureDefinitions: resolved.textures,
 		storageTextureKeys: [...resolved.storageTextureKeys],
 		getPasses: () => passes,
+		...(getRenderTargets ? { getRenderTargets } : {}),
 		getDpr: () => 1,
 		getClearColor: () => [0, 0, 0, 1],
 		color: { outputEncoding: 'linear' }
@@ -34,7 +45,7 @@ async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
 	if (!context) throw new Error('Canvas 2D context is unavailable');
 	return {
 		renderer,
-		async draw(textures: TextureMap = {}) {
+		async draw(textures: TextureMap = {}, canvasSize = { width: 2, height: 2 }) {
 			device.pushErrorScope('validation');
 			let pixel: number[];
 			let error: GPUError | null;
@@ -45,7 +56,7 @@ async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
 					renderMode: 'manual',
 					uniforms: {},
 					textures,
-					canvasSize: { width: 2, height: 2 }
+					canvasSize
 				});
 				context.drawImage(canvas, 0, 0);
 				pixel = [...context.getImageData(0, 0, 1, 1).data];
@@ -57,6 +68,184 @@ async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
 			return pixel;
 		}
 	};
+}
+
+export async function readCanvasWritingMode(writingMode: string) {
+	const container = document.createElement('div');
+	container.style.writingMode = writingMode;
+	const canvas = document.createElement('canvas');
+	canvas.style.cssText =
+		'width:120px;height:40px;padding:3px;border:2px solid;box-sizing:content-box';
+	container.append(canvas);
+	document.body.append(container);
+	const size = createCurrentWritable({ width: 0, height: 0 });
+	let onFrame: (() => void) | undefined;
+	const reports: string[] = [];
+	const material = defineMaterial({
+		fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+	});
+	const pass: AnyPass = { needsSwap: false, render: () => onFrame?.() };
+	const loop = createSpektralRuntimeLoop({
+		canvas,
+		registry: createFrameRegistry({ renderMode: 'manual' }),
+		size,
+		dpr: createCurrentWritable(1),
+		maxDelta: createCurrentWritable(0.1),
+		getMaterial: () => material,
+		getRenderTargets: () => ({}),
+		getPasses: () => [pass],
+		getClearColor: () => [0, 0, 0, 1],
+		getAdapterOptions: () => undefined,
+		getDeviceDescriptor: () => undefined,
+		getOnError: () => undefined,
+		reportError: (report) => {
+			if (report) reports.push(report.code);
+		}
+	});
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		// Let the native ResizeObserver deliver the content box before advancing.
+		await new Promise<void>((resolve) =>
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+		);
+		await new Promise<void>((resolve, reject) => {
+			onFrame = resolve;
+			timer = setTimeout(() => reject(new Error('Canvas frame was not rendered')), 5000);
+			loop.advance();
+		});
+		return {
+			observed: size.current,
+			backing: { width: canvas.width, height: canvas.height },
+			reports
+		};
+	} finally {
+		clearTimeout(timer);
+		loop.destroy();
+		container.remove();
+	}
+}
+
+export async function readCollidingStorageData() {
+	const values = [
+		[1364945411, 3212416462],
+		[2409582172, 2899006390]
+	];
+	const materials = values.map((data) =>
+		defineMaterial({
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }',
+			storageBuffers: { data: { type: 'array<u32>', size: 8, initialData: new Uint32Array(data) } }
+		})
+	);
+	let material = materials[0]!;
+	let onFrame: ((reader: FrameState['readStorageBuffer']) => void) | undefined;
+	const canvas = document.createElement('canvas');
+	canvas.style.width = canvas.style.height = '8px';
+	document.body.append(canvas);
+	const registry = createFrameRegistry({ renderMode: 'manual' });
+	registry.register((state) => onFrame?.(state.readStorageBuffer), { autoInvalidate: false });
+	const reports: string[] = [];
+	const loop = createSpektralRuntimeLoop({
+		canvas,
+		registry,
+		size: createCurrentWritable({ width: 0, height: 0 }),
+		dpr: createCurrentWritable(1),
+		maxDelta: createCurrentWritable(0.1),
+		getMaterial: () => material,
+		getRenderTargets: () => ({}),
+		getPasses: () => [],
+		getClearColor: () => [0, 0, 0, 1],
+		getAdapterOptions: () => undefined,
+		getDeviceDescriptor: () => undefined,
+		getOnError: () => undefined,
+		reportError: (report) => {
+			if (report) reports.push(report.code);
+		}
+	});
+	const read = async () => {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			const reader = await new Promise<FrameState['readStorageBuffer']>((resolve, reject) => {
+				onFrame = resolve;
+				timer = setTimeout(() => reject(new Error('Storage frame was not rendered')), 5000);
+				loop.advance();
+			});
+			return [...new Uint32Array(await reader('data'))];
+		} finally {
+			clearTimeout(timer);
+			onFrame = undefined;
+		}
+	};
+	try {
+		const first = await read();
+		material = materials[1]!;
+		const replacement = await read();
+		material = materials[0]!;
+		return { first, replacement, restored: await read(), reports };
+	} finally {
+		loop.destroy();
+		canvas.remove();
+	}
+}
+
+export async function readRenderTargetRecovery() {
+	let width = 2;
+	const proof = await createProofRenderer(
+		defineMaterial({
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(0.0, 1.0, 0.0, 1.0); }'
+		}),
+		[
+			new BlitPass({ output: 'history', needsSwap: false }),
+			new BlitPass({ input: 'history', output: 'source', needsSwap: false })
+		],
+		() => ({ history: { width, height: 2 } })
+	);
+	try {
+		const before = await proof.draw();
+		width = proof.renderer.getDevice!().limits.maxTextureDimension2D + 1;
+		let failure = '';
+		try {
+			await proof.draw();
+		} catch (error) {
+			failure = String(error);
+		}
+		width = 2;
+		return { before, failure, recovered: [await proof.draw(), await proof.draw()] };
+	} finally {
+		proof.renderer.destroy();
+	}
+}
+
+export async function readFeedbackResize() {
+	const passes = [
+		new PingPongShaderPass({
+			target: 'stateA',
+			clearColor: [0.25, 0, 0, 1],
+			fragment: `fn frag(uv: vec2f) -> vec4f {
+				return vec4f(textureLoad(spektralPrevious, vec2i(0), 0).r + 0.125, 0.0, 0.0, 1.0);
+			}`
+		}),
+		new PingPongShaderPass({
+			target: 'stateB',
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return textureLoad(stateA, vec2i(0), 0); }'
+		})
+	];
+	const proof = await createProofRenderer(
+		defineMaterial({
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return textureLoad(stateB, vec2i(0), 0); }',
+			textures: { stateA: { colorSpace: 'linear' }, stateB: { colorSpace: 'linear' } }
+		}),
+		passes
+	);
+	try {
+		return [
+			(await proof.draw())[0]!,
+			(await proof.draw())[0]!,
+			(await proof.draw({}, { width: 4, height: 4 }))[0]!,
+			(await proof.draw({}, { width: 4, height: 4 }))[0]!
+		];
+	} finally {
+		proof.renderer.destroy();
+	}
 }
 
 export async function readComputeRemoval(

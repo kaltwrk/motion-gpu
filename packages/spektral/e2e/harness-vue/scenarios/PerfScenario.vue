@@ -13,6 +13,7 @@ type PerfWindow = Window &
 			setMode: (mode: RenderMode) => void;
 			invalidate: () => void;
 			advance: () => void;
+			setTaskActive: (active: boolean) => void;
 		};
 	};
 
@@ -82,7 +83,8 @@ watchEffect((onCleanup) => {
 	perfWindow.__SPEKTRAL_PERF__ = {
 		setMode,
 		invalidate: controls.value.invalidate,
-		advance: controls.value.advance
+		advance: controls.value.advance,
+		setTaskActive: controls.value.setTaskActive
 	};
 
 	onCleanup(() => {
@@ -127,7 +129,11 @@ watchEffect((onCleanup) => {
 				:showErrorOverlay="false"
 				:onError="handleError"
 			>
-				<RuntimeProbe :onFrame="(count) => (schedulerCount = count)" :onReady="handleReady" />
+				<RuntimeProbe
+					passive
+					:onFrame="(count) => (schedulerCount = count)"
+					:onReady="handleReady"
+				/>
 			</FragCanvas>
 		</div>
 	</main>
