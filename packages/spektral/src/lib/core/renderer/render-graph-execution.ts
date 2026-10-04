@@ -121,13 +121,15 @@ export function executePostSceneRenderGraph(input: {
 
 		for (const step of input.graphPlan.renderSteps) {
 			const source = input.slots.source;
-			const target = input.slots.target;
+			let target: RenderTarget | undefined;
 			const output = resolveStepSurface(step.output);
 			(step.pass as RenderPass).render({
 				device: input.device,
 				commandEncoder: input.commandEncoder,
 				source,
-				target,
+				get target() {
+					return (target ??= input.slots!.target);
+				},
 				get canvas() {
 					return input.slots!.canvas;
 				},
@@ -157,7 +159,7 @@ export function executePostSceneRenderGraph(input: {
 				}
 			});
 			if (step.needsSwap) {
-				input.slots.source = target;
+				input.slots.source = target ?? input.slots.target;
 				input.slots.target = source;
 			}
 		}

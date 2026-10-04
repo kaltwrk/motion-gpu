@@ -1973,6 +1973,96 @@ describe('createRenderer', () => {
 		}
 	);
 
+	it.each(['rgba8unorm', 'rgba16float'] as const)(
+		'allocates only used surfaces for a pass ending at canvas (%s)',
+		async (workingFormat) => {
+			const runtime = createWebGpuRuntime();
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				passes: [new BlitPass({ input: 'source', output: 'canvas', needsSwap: false })],
+				color: { workingFormat }
+			});
+			const surfaces = () =>
+				runtime.textures.filter(
+					(texture) =>
+						(texture.usage & GPUTextureUsage.TEXTURE_BINDING) !== 0 &&
+						(texture.descriptor.size as GPUExtent3DDict).width > 1
+				);
+			try {
+				for (const width of [3840, 3840, 1920]) {
+					renderer.render({
+						time: 0,
+						delta: 0.016,
+						renderMode: 'manual',
+						uniforms: {},
+						textures: {},
+						canvasSize: { width, height: (width * 9) / 16 }
+					});
+					const active = surfaces().filter((texture) => texture.destroy.mock.calls.length === 0);
+					expect(active).toHaveLength(2);
+					for (const texture of active)
+						expect(texture.descriptor).toMatchObject({
+							format: workingFormat,
+							size: { width, height: (width * 9) / 16 }
+						});
+				}
+				expect(surfaces()).toHaveLength(4);
+			} finally {
+				renderer.destroy();
+			}
+			for (const texture of surfaces()) expect(texture.destroy).toHaveBeenCalledOnce();
+		}
+	);
+
+	it('allocates a custom pass target on access and releases it only after a successful unused frame', async () => {
+		const runtime = createWebGpuRuntime();
+		let useTarget = false;
+		let fail = false;
+		let targetTexture: GPUTexture | undefined;
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			passes: [
+				{
+					needsSwap: false,
+					render(context) {
+						if (useTarget) {
+							targetTexture = context.target.texture;
+							expect(context.target.texture).toBe(targetTexture);
+							expect(context.target.texture).not.toBe(context.source.texture);
+						}
+						if (fail) throw new Error('abort audit frame');
+					}
+				}
+			]
+		});
+		const surfaces = () =>
+			runtime.textures.filter(
+				(texture) =>
+					(texture.usage & GPUTextureUsage.TEXTURE_BINDING) !== 0 &&
+					(texture.descriptor.size as GPUExtent3DDict).width === 10
+			);
+		renderFrame(renderer);
+		expect(surfaces()).toHaveLength(1);
+		useTarget = true;
+		renderFrame(renderer);
+		const target = surfaces().find((texture) => (texture as unknown) === targetTexture)!;
+		expect(surfaces()).toHaveLength(2);
+		renderFrame(renderer);
+		expect(surfaces()).toHaveLength(2);
+		useTarget = false;
+		fail = true;
+		expect(() => renderFrame(renderer)).toThrow('abort audit frame');
+		expect(target.destroy).not.toHaveBeenCalled();
+		fail = false;
+		renderFrame(renderer);
+		expect(target.destroy).toHaveBeenCalledOnce();
+		useTarget = true;
+		renderFrame(renderer);
+		expect(surfaces()).toHaveLength(3);
+		renderer.destroy();
+		for (const texture of surfaces()) expect(texture.destroy).toHaveBeenCalledOnce();
+	});
+
 	it('allocates the custom pass canvas surface only when accessed and releases it when unused', async () => {
 		const runtime = createWebGpuRuntime();
 		let useCanvas = true;

@@ -1764,6 +1764,8 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		let sourceTextureBindingsDirty = false;
 		let sourceSlotTarget: RuntimeRenderTarget | null = null;
 		let targetSlotTarget: RuntimeRenderTarget | null = null;
+		let targetSlotUsed = false;
+		let frameTarget: RenderTarget | null = null;
 		let presentationSlotTarget: RuntimeRenderTarget | null = null;
 		let presentationTargetUsed = false;
 		let renderTargetSignature = '';
@@ -1812,7 +1814,16 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		 */
 		const frameSlots = {
 			source: null as unknown as RuntimeRenderTarget,
-			target: null as unknown as RuntimeRenderTarget,
+			get target(): RenderTarget {
+				if (!frameTarget) {
+					targetSlotUsed = true;
+					frameTarget = ensureSlotTarget('target', canvasSurface.width, canvasSurface.height);
+				}
+				return frameTarget;
+			},
+			set target(target: RenderTarget) {
+				frameTarget = target;
+			},
 			get canvas(): RenderTarget {
 				return ensurePresentationTarget(canvasSurface.width, canvasSurface.height);
 			}
@@ -2472,13 +2483,14 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				const presentationRequired = colorPipeline.requiresPresentationPass;
 				const graphHasRenderSteps = graphPlan.renderSteps.length > 0;
 				presentationTargetUsed = false;
+				targetSlotUsed = false;
+				frameTarget = null;
 				const presentationSurface =
 					presentationRequired && !graphHasRenderSteps
 						? ensurePresentationTarget(width, height)
 						: null;
 				if (graphHasRenderSteps) {
 					frameSlots.source = ensureSlotTarget('source', width, height);
-					frameSlots.target = ensureSlotTarget('target', width, height);
 				}
 				const slots = graphHasRenderSteps ? frameSlots : null;
 				const sceneOutput = slots ? slots.source : (presentationSurface ?? canvasSurface);
@@ -2791,9 +2803,12 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				// Release intermediates only after the current command buffer is submitted.
 				if (!graphHasRenderSteps) {
 					destroyRenderTexture(sourceSlotTarget);
+					sourceSlotTarget = null;
+					frameSlots.source = canvasSurface;
+				}
+				if (!targetSlotUsed) {
 					destroyRenderTexture(targetSlotTarget);
-					sourceSlotTarget = targetSlotTarget = null;
-					frameSlots.source = frameSlots.target = canvasSurface;
+					targetSlotTarget = null;
 				}
 				if (!presentationTargetUsed) {
 					destroyRenderTexture(presentationSlotTarget);
