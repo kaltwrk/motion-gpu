@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Performance
 
+- Reuse scene and fragment-feedback bind groups across alternating texture views. Each pipeline and frame-buffer pair retains at most two resource combinations, and chained feedback updates rebuild the scene binding only after the final output is known.
+
 - Allocate the postprocessing target only when a pass reads or swaps it. Direct source-to-canvas passes now use two full-size intermediates instead of three; unused targets are released after a successful submission.
 
 - Read storage-buffer initial data once during renderer creation, reducing defensive copies from three to one. A 16 MiB upload now copies 16 MiB instead of 48 MiB while preserving material isolation.

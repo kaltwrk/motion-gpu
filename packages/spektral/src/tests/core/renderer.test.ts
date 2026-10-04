@@ -1674,11 +1674,15 @@ describe('createRenderer', () => {
 		});
 
 		expect(uploadedTexture?.destroy).toHaveBeenCalledTimes(1);
-		expect(runtime.device.createBindGroup).toHaveBeenCalledTimes(bindGroupsAfterUpload + 1);
+		expect(runtime.device.createBindGroup).toHaveBeenCalledTimes(bindGroupsAfterUpload);
 		expect(runtime.device.createRenderPipeline).toHaveBeenCalledTimes(pipelinesAfterInit);
-		const restoredBindGroupDescriptor = runtime.device.createBindGroup.mock.calls.at(-1)?.[0] as
-			| GPUBindGroupDescriptor
-			| undefined;
+		const restoredGroup = runtime.renderPasses.at(-1)!.setBindGroup.mock.calls[0]![1];
+		const restoredIndex = runtime.device.createBindGroup.mock.results.findIndex(
+			(result) => result.value === restoredGroup
+		);
+		const restoredBindGroupDescriptor = runtime.device.createBindGroup.mock.calls[
+			restoredIndex
+		]![0] as GPUBindGroupDescriptor;
 		expect(
 			Array.from(restoredBindGroupDescriptor?.entries ?? []).find((entry) => entry.binding === 3)
 				?.resource
@@ -4166,13 +4170,17 @@ describe('createRenderer', () => {
 			draw();
 			const expectedView = (otherOwner ? storageTextures().at(-1) : owned)?.createView.mock
 				.results[0]?.value;
-			const sceneGroups = runtime.device.createBindGroup.mock.calls
-				.map((call) => call[0] as GPUBindGroupDescriptor)
-				.filter((descriptor) => Array.from(descriptor.entries).length === 4);
+			const sceneGroup = runtime.renderPasses.at(-1)!.setBindGroup.mock.calls[0]![1];
+			const groupIndex = runtime.device.createBindGroup.mock.results.findIndex(
+				(result) => result.value === sceneGroup
+			);
+			const descriptor = runtime.device.createBindGroup.mock.calls[
+				groupIndex
+			]![0] as GPUBindGroupDescriptor;
 			expect(expectedView).toBeDefined();
-			expect(
-				Array.from(sceneGroups.at(-1)!.entries).find((entry) => entry.binding === 3)?.resource
-			).toBe(expectedView);
+			expect(Array.from(descriptor.entries).find((entry) => entry.binding === 3)?.resource).toBe(
+				expectedView
+			);
 			expect(removedA?.destroy).toHaveBeenCalledTimes(1);
 			expect(removedB?.destroy).toHaveBeenCalledTimes(1);
 			expect(owned?.destroy).not.toHaveBeenCalled();
@@ -4230,6 +4238,96 @@ describe('createRenderer', () => {
 		for (const texture of storageTextures) {
 			expect(texture.destroy).toHaveBeenCalledTimes(1);
 		}
+	});
+
+	it.each([
+		['shader', 1],
+		['shader', 2],
+		['compute', 1],
+		['compute', 2]
+	] as const)('reuses warmed %s feedback bindings with %i iterations', async (kind, iterations) => {
+		const runtime = createWebGpuRuntime();
+		const { PingPongShaderPass, PingPongComputePass } = await import('../../lib/passes');
+		const pass =
+			kind === 'shader'
+				? new PingPongShaderPass({
+						target: 'sim',
+						iterations,
+						fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+					})
+				: new PingPongComputePass({
+						resources: {
+							read: { texture: 'sim', access: 'sampled', pingPong: 'read' },
+							write: { texture: 'sim', access: 'storage-write', pingPong: 'write' }
+						},
+						iterations,
+						compute:
+							'@compute @workgroup_size(1) fn compute(@builtin(global_invocation_id) id: vec3u) {}'
+					});
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['sim'],
+			textureDefinitions: {
+				sim: kind === 'shader' ? {} : { storage: true, width: 8, height: 8, format: 'rgba8unorm' }
+			},
+			passes: [pass]
+		});
+		for (let frame = 0; frame < 4; frame++) renderFrame(renderer);
+		const count = runtime.device.createBindGroup.mock.calls.length;
+		for (let frame = 0; frame < 100; frame++) renderFrame(renderer);
+		expect(runtime.device.createBindGroup).toHaveBeenCalledTimes(count);
+		renderer.destroy();
+	});
+
+	it('reuses chained feedback bindings after warming and resizing without binding retired views', async () => {
+		const runtime = createWebGpuRuntime();
+		const { PingPongShaderPass } = await import('../../lib/passes');
+		const passes = ['a', 'b', 'c'].map(
+			(target) =>
+				new PingPongShaderPass({
+					target,
+					fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+				})
+		);
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['a', 'b', 'c'],
+			textureDefinitions: { a: {}, b: {}, c: {} },
+			passes
+		});
+		for (const width of [10, 20]) {
+			const frame = () =>
+				renderer.render({
+					time: 0,
+					delta: 0.016,
+					renderMode: 'manual',
+					uniforms: {},
+					textures: {},
+					canvasSize: { width, height: width }
+				});
+			for (let i = 0; i < 4; i++) frame();
+			const count = runtime.device.createBindGroup.mock.calls.length;
+			for (let i = 0; i < 100; i++) frame();
+			expect(runtime.device.createBindGroup).toHaveBeenCalledTimes(count);
+			const groups = runtime.renderPasses
+				.slice(-4)
+				.flatMap((pass) => pass.setBindGroup.mock.calls.map(([, group]) => group));
+			for (const group of groups) {
+				const index = runtime.device.createBindGroup.mock.results.findIndex(
+					(result) => result.value === group
+				);
+				const descriptor = runtime.device.createBindGroup.mock.calls[
+					index
+				]![0] as GPUBindGroupDescriptor;
+				for (const { resource } of descriptor.entries) {
+					for (const texture of runtime.textures) {
+						if (texture.createView.mock.results.some((result) => result.value === resource))
+							expect(texture.destroy).not.toHaveBeenCalled();
+					}
+				}
+			}
+		}
+		renderer.destroy();
 	});
 
 	it.each(['first', 'later', 'reset', 'submit'] as const)(

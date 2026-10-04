@@ -1,3 +1,4 @@
+import { TextureBindGroupCache } from './renderer/texture-bind-groups.js';
 import { ActivePipelineCache } from './renderer/pipeline-cache.js';
 import { FrameStateTransaction } from './renderer/frame-state.js';
 import { buildRenderTargetSignature, resolveRenderTargetDefinitions } from './render-targets.js';
@@ -1497,47 +1498,19 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			);
 		};
 
-		/**
-		 * Rebuilds a fragment bind group using current texture views.
-		 */
-		const createTextureBindGroup = (
-			layout: GPUBindGroupLayout,
-			bindings: RuntimeTextureBinding[],
-			frameUniformBuffer = frameBuffer
-		): GPUBindGroup => {
-			const entries: GPUBindGroupEntry[] = [
-				{ binding: FRAME_BINDING, resource: { buffer: frameUniformBuffer } },
-				{ binding: UNIFORM_BINDING, resource: { buffer: uniformBuffer } }
-			];
-
-			for (const binding of bindings) {
-				entries.push({
-					binding: binding.samplerBinding,
-					resource: binding.sampler
-				});
-				entries.push({
-					binding: binding.textureBinding,
-					resource: binding.resource.publishedView
-				});
-			}
-
-			return device.createBindGroup({
-				layout,
-				entries
-			});
-		};
-
+		const textureBindGroups = new TextureBindGroupCache(device);
 		const createBindGroup = (): GPUBindGroup =>
-			createTextureBindGroup(bindGroupLayout, fragmentTextureBindings);
+			textureBindGroups.get(bindGroupLayout, frameBuffer, uniformBuffer, fragmentTextureBindings);
 
 		const createPingPongShaderBindGroup = (
 			entry: PingPongShaderPipelineEntry,
 			frameUniformBuffer: GPUBuffer
 		): GPUBindGroup =>
-			createTextureBindGroup(
+			textureBindGroups.get(
 				entry.bindGroupLayout,
-				getFragmentTextureBindingsForKeys(entry.textureKeys),
-				frameUniformBuffer
+				frameUniformBuffer,
+				uniformBuffer,
+				getFragmentTextureBindingsForKeys(entry.textureKeys)
 			);
 
 		const attachFeedbackTextureBinding = (
@@ -2749,7 +2722,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 					const latestOutput = feedbackPass.getCurrentOutput();
 					const latestView = latestOutput === `${pair.target}B` ? pair.viewB : pair.viewA;
 					if (attachFeedbackTextureBinding(targetBinding, latestView, pair, frameState)) {
-						bindGroup = createBindGroup();
+						bindGroupDirty = true;
 					}
 				}
 				if (bindGroupDirty) {
@@ -2860,6 +2833,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				computePipelineCache.clear();
 				computeResourceResolutionCache.clear();
 				externalTextureViewCache = new WeakMap();
+				textureBindGroups.reset();
 				pingPongShaderPipelineCache.clear();
 				destroyRenderTexture(sourceSlotTarget);
 				destroyRenderTexture(targetSlotTarget);
