@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-10-04
+
 ### Performance
 
 - Removed an unused full-size presentation texture from the direct `CopyPass` path. Copy eligibility now checks the resolved texture usages without reading the lazy canvas surface, reducing ordinary copy chains from three intermediate textures to two.
@@ -541,7 +543,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Namespaced user-context APIs for plugin-like integrations.
 - Core tests and TypeScript hardening across runtime/public API behavior.
 
-[Unreleased]: https://github.com/kaltwrk/spektral/compare/v0.17.1...HEAD
+[Unreleased]: https://github.com/kaltwrk/spektral/compare/v0.17.2...HEAD
+[0.17.2]: https://github.com/kaltwrk/spektral/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/kaltwrk/spektral/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/kaltwrk/spektral/compare/2cd79015...v0.17.0
 [0.16.0]: https://github.com/Motion-Core/motion-gpu/compare/2351fb7f...2cd79015
