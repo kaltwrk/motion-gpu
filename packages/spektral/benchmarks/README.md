@@ -201,3 +201,10 @@ Historical schema-v2 CPU baselines remain in `core-schema-v2.json` and
 `runtime-schema-v2.json`. The last schema-v3 baselines captured before the 0.17.0 benchmark-suite
 change remain in `core-pre-0.17.0.json` and `runtime-pre-0.17.0.json`. Strict commands read only
 `core.json` and `runtime.json`, which use the current suite hash.
+
+The pre-0.17.2 real-renderer baseline is preserved in
+`apple-m4-pro-real-renderer-551cc81c4a408878-pre-0.17.2.json`. The linear postprocessing fix in
+0.17.2 changes the sixteen-pass image checksum from `1909554165` to `4212639533`; the no-pass and
+compute checksums remain unchanged. The active baseline is recaptured for that corrected output.
+Before the refresh, all nine timing metrics passed the original thresholds in a five-process run.
+The hardware fingerprint, benchmark workload, and regression thresholds are unchanged.
