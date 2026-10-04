@@ -710,13 +710,14 @@
 					)}
 				/>
 			</Popover.Trigger>
+			<!-- Keep height auto: fit-content collapses this panel's contents in Safari 26.0. -->
 			<Popover.ContentStatic
 				role="dialog"
 				aria-label={title}
 				trapFocus={false}
 				onOpenAutoFocus={(event) => event.preventDefault()}
 				onCloseAutoFocus={restoreFocus}
-				class="absolute inset-x-0 top-full flex h-fit max-h-[60dvh] flex-col overflow-hidden border-y border-border bg-background/95 px-6 py-3 backdrop-blur-md outline-none"
+				class="absolute inset-x-0 top-full flex max-h-[60dvh] flex-col overflow-hidden border-y border-border bg-background/95 px-6 py-3 backdrop-blur-md outline-none"
 			>
 				{@render tocList()}
 			</Popover.ContentStatic>
