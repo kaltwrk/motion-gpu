@@ -4,7 +4,7 @@ import { createFrameRegistry } from '../../lib/core/frame-registry';
 import { defineMaterial, resolveMaterial } from '../../lib/core/material';
 import { attachShaderCompilationDiagnostics } from '../../lib/core/error-diagnostics';
 import { packUniformsIntoFast } from '../../lib/core/uniforms';
-import type { UniformValue } from '../../lib/core/types';
+import type { UniformValue, ColorPipelineOptions } from '../../lib/core/types';
 
 const { createRendererMock } = vi.hoisted(() => ({
 	createRendererMock: vi.fn()
@@ -714,6 +714,66 @@ describe('runtime-loop', () => {
 
 		await flushFrame(64); // readiness callback must render, not just run another RAF
 		expect(renderer.render).toHaveBeenCalledTimes(2);
+		loop.destroy();
+	});
+
+	it('does not serialize unchanged WGSL each frame and detects mutations inside renderer options', async () => {
+		const fragment =
+			'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }\n//' + 'x'.repeat(128 * 1024);
+		const material = defineMaterial({ fragment });
+		const renderer: MockRenderer = { render: vi.fn(), destroy: vi.fn() };
+		createRendererMock.mockResolvedValue(renderer);
+		const color: ColorPipelineOptions = { outputEncoding: 'srgb' };
+		const features = new Set<GPUFeatureName>();
+		const limits = { maxTextureDimension2D: 1024 };
+		const adapter: GPURequestAdapterOptions = { powerPreference: 'low-power' };
+		const loop = createSpektralRuntimeLoop({
+			canvas: createCanvas(),
+			registry: createFrameRegistry(),
+			size: createCurrentWritable({ width: 16, height: 9 }),
+			dpr: createCurrentWritable(1),
+			maxDelta: createCurrentWritable(0.1),
+			getMaterial: () => material,
+			getRenderTargets: () => ({}),
+			getPasses: () => [],
+			getClearColor: () => [0, 0, 0, 1],
+			getColor: () => color,
+			getAdapterOptions: () => adapter,
+			getDeviceDescriptor: () => ({ requiredFeatures: features, requiredLimits: limits }),
+			getOnError: () => undefined,
+			reportError: vi.fn()
+		});
+		await flushFrame(16);
+		await flushFrame(32);
+		const stringify = vi.spyOn(JSON, 'stringify');
+		for (let frame = 0; frame < 20; frame++) await flushFrame(48 + frame * 16);
+		const serializedSources = stringify.mock.calls.filter(
+			([value]) =>
+				typeof value?.materialSignature === 'string' && value.materialSignature.length > 128 * 1024
+		);
+		expect(serializedSources).toHaveLength(0);
+		expect(createRendererMock).toHaveBeenCalledOnce();
+		for (const mutate of [
+			() => {
+				color.outputEncoding = 'linear';
+			},
+			() => {
+				features.add('shader-f16');
+			},
+			() => {
+				limits.maxTextureDimension2D = 2048;
+			},
+			() => {
+				adapter.powerPreference = 'high-performance';
+			}
+		]) {
+			const count = createRendererMock.mock.calls.length;
+			mutate();
+			loop.invalidate();
+			await flushFrame(500);
+			await flushFrame(516);
+			expect(createRendererMock).toHaveBeenCalledTimes(count + 1);
+		}
 		loop.destroy();
 	});
 

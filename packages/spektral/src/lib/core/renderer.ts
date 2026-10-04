@@ -1,5 +1,5 @@
 import { TextureBindGroupCache } from './renderer/texture-bind-groups.js';
-import { ActivePipelineCache } from './renderer/pipeline-cache.js';
+import { ActivePipelineCache, PipelineKeyCache } from './renderer/pipeline-cache.js';
 import { FrameStateTransaction } from './renderer/frame-state.js';
 import { buildRenderTargetSignature, resolveRenderTargetDefinitions } from './render-targets.js';
 import {
@@ -979,6 +979,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		let nextComputePipelineLabelIndex = 0;
 		const computeResourceLimits = getComputeResourceResolverLimits(device);
 		const computeResourceResolutionCache = createComputePassResourceResolutionCache();
+		const pipelineKeys = new PipelineKeyCache();
 		const computeUniformTopologyKey = options.uniformLayout.entries
 			.map((entry) => `${entry.name}:${entry.type}`)
 			.join(',');
@@ -1150,7 +1151,14 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				resources: ResolvedComputePassResources;
 			}
 		): ComputePipelineEntry => {
-			const cacheKey = `compute:${computeUniformTopologyKey}:${buildOptions.resources.topologyKey}:${computeDeviceCapabilityKey}:${buildOptions.workgroupSize.join(',')}:${buildOptions.computeSource}`;
+			const cacheKey = pipelineKeys.get(pass, [
+				'compute',
+				computeUniformTopologyKey,
+				buildOptions.resources.topologyKey,
+				computeDeviceCapabilityKey,
+				...buildOptions.workgroupSize,
+				buildOptions.computeSource
+			]);
 			const cached = computePipelineCache.use(pass, cacheKey);
 			if (cached) {
 				if (cached.kind === 'error') {
@@ -1176,7 +1184,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			pipeline: GPURenderPipeline;
 			bindGroupLayout: GPUBindGroupLayout;
 			previousBindGroupLayout: GPUBindGroupLayout;
-			textureKeys: string[];
+			textureBindings: RuntimeTextureBinding[];
 		}
 		const pingPongShaderPipelineCache = new ActivePipelineCache<PingPongShaderPipelineEntry>(32);
 
@@ -1197,6 +1205,12 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			format: GPUTextureFormat,
 			target: string
 		): PingPongShaderPipelineEntry => {
+			const fragment = pass.getFragment();
+			if (!fragment) throw new Error('PingPongShaderPass must provide a fragment shader.');
+			const filter = pass.getFilter();
+			const cacheKey = pipelineKeys.get(pass, ['feedback', format, target, filter, fragment]);
+			const cached = pingPongShaderPipelineCache.use(pass, cacheKey);
+			if (cached) return cached;
 			assertFloatSampledFormat({
 				format,
 				target,
@@ -1209,31 +1223,12 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				pass: 'PingPongShaderPass',
 				deviceFeatures: device.features
 			});
-			const fragment = pass.getFragment();
-			if (!fragment) {
-				throw new Error('PingPongShaderPass must provide a fragment shader.');
-			}
-
 			const feedbackTextureKeys = fragmentTextureKeys.filter((key) => key !== target);
 			const previousSamplingLayout = resolveTextureSamplingLayout({
 				format,
-				filter: pass.getFilter(),
+				filter,
 				deviceFeatures: device.features
 			});
-			const cacheKey = [
-				format,
-				target,
-				previousSamplingLayout.sampleType,
-				previousSamplingLayout.samplerType,
-				previousSamplingLayout.effectiveFilter,
-				feedbackTextureKeys.join(','),
-				options.uniformLayout.entries.map((entry) => `${entry.name}:${entry.type}`).join(','),
-				fragment
-			].join('|');
-			const cached = pingPongShaderPipelineCache.use(pass, cacheKey);
-			if (cached) {
-				return cached;
-			}
 
 			const fragmentLineMap = pass.getFragmentLineMap();
 			const builtShader = buildPingPongShaderSourceWithMap(
@@ -1243,10 +1238,9 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				{ fragmentLineMap }
 			);
 			const shaderModule = device.createShaderModule({ code: builtShader.code });
+			const feedbackBindings = getFragmentTextureBindingsForKeys(feedbackTextureKeys);
 			const feedbackBindGroupLayout = device.createBindGroupLayout({
-				entries: createBindGroupLayoutEntries(
-					getFragmentTextureBindingsForKeys(feedbackTextureKeys)
-				)
+				entries: createBindGroupLayoutEntries(feedbackBindings)
 			});
 			const previousBindGroupLayout = device.createBindGroupLayout({
 				entries: [
@@ -1288,7 +1282,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				pipeline,
 				bindGroupLayout: feedbackBindGroupLayout,
 				previousBindGroupLayout,
-				textureKeys: feedbackTextureKeys
+				textureBindings: feedbackBindings
 			};
 			pingPongShaderPipelineCache.set(cacheKey, entry);
 			return entry;
@@ -1510,7 +1504,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				entry.bindGroupLayout,
 				frameUniformBuffer,
 				uniformBuffer,
-				getFragmentTextureBindingsForKeys(entry.textureKeys)
+				entry.textureBindings
 			);
 
 		const attachFeedbackTextureBinding = (

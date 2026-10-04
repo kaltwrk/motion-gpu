@@ -1,5 +1,24 @@
-import { expect, it } from 'vitest';
-import { ActivePipelineCache } from '../../lib/core/renderer/pipeline-cache';
+import { expect, it, vi } from 'vitest';
+import { ActivePipelineCache, PipelineKeyCache } from '../../lib/core/renderer/pipeline-cache';
+
+it('serializes pipeline keys only when scalar inputs change, with unambiguous boundaries', () => {
+	const cache = new PipelineKeyCache();
+	const owner = {};
+	const parts = ['shader', 'x'.repeat(128 * 1024), 1];
+	const stringify = vi.spyOn(JSON, 'stringify');
+	try {
+		const first = cache.get(owner, parts);
+		for (let i = 0; i < 100; i++) expect(cache.get(owner, [...parts])).toBe(first);
+		expect(stringify).toHaveBeenCalledOnce();
+		parts[2] = 2;
+		expect(cache.get(owner, parts)).not.toBe(first);
+		expect(cache.get({}, ['a|b', 'c'])).not.toBe(cache.get({}, ['a', 'b|c']));
+		expect(cache.get({}, ['1'])).not.toBe(cache.get({}, [1]));
+		expect(cache.get(owner, ['shader'])).not.toBe(first);
+	} finally {
+		stringify.mockRestore();
+	}
+});
 
 it('pins shared and oversized active sets while pruning inactive LRU history', () => {
 	const cache = new ActivePipelineCache<object>(2);

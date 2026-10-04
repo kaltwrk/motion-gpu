@@ -1,3 +1,24 @@
+/** Avoids joining or hashing WGSL on every frame; retains one scalar snapshot per pass. */
+export class PipelineKeyCache {
+	private readonly owners = new WeakMap<
+		object,
+		{ parts: readonly (string | number)[]; key: string }
+	>();
+
+	get(owner: object, parts: readonly (string | number)[]): string {
+		const previous = this.owners.get(owner);
+		if (
+			previous &&
+			previous.parts.length === parts.length &&
+			parts.every((part, index) => part === previous.parts[index])
+		)
+			return previous.key;
+		const key = JSON.stringify(parts);
+		this.owners.set(owner, { parts: [...parts], key });
+		return key;
+	}
+}
+
 /** LRU history with entries pinned by the passes that currently use them. */
 export class ActivePipelineCache<T> {
 	private readonly entries = new Map<string, T>();

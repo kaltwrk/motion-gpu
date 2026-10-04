@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Performance
 
+- Cache renderer signatures and managed-pass pipeline keys while shader inputs remain unchanged. Steady frames avoid serializing full WGSL and rebuilding feedback binding descriptors; mutable device/color options, resource topology changes, and storage-data revisions still invalidate the appropriate cache.
+
 - Cache mipmap views and bind groups for each GPU texture allocation. Repeated dynamic uploads now reuse one view per mip level and create no additional mipmap bindings after warmup; resized uploads receive a separate cache.
 
 - Reuse scene and fragment-feedback bind groups across alternating texture views. Each pipeline and frame-buffer pair retains at most two resource combinations, and chained feedback updates rebuild the scene binding only after the final output is known.
