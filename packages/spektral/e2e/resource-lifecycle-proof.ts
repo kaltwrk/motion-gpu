@@ -6,6 +6,7 @@ import { defineMaterial, resolveMaterial, type FragMaterial } from '../src/lib/c
 import { createRenderer } from '../src/lib/core/renderer';
 import type {
 	AnyPass,
+	FrameState,
 	RenderPassContext,
 	RenderTargetDefinitionMap,
 	TextureMap
@@ -67,6 +68,68 @@ async function createProofRenderer(
 			return pixel;
 		}
 	};
+}
+
+export async function readCollidingStorageData() {
+	const values = [
+		[1364945411, 3212416462],
+		[2409582172, 2899006390]
+	];
+	const materials = values.map((data) =>
+		defineMaterial({
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }',
+			storageBuffers: { data: { type: 'array<u32>', size: 8, initialData: new Uint32Array(data) } }
+		})
+	);
+	let material = materials[0]!;
+	let onFrame: ((reader: FrameState['readStorageBuffer']) => void) | undefined;
+	const canvas = document.createElement('canvas');
+	canvas.style.width = canvas.style.height = '8px';
+	document.body.append(canvas);
+	const registry = createFrameRegistry({ renderMode: 'manual' });
+	registry.register((state) => onFrame?.(state.readStorageBuffer), { autoInvalidate: false });
+	const reports: string[] = [];
+	const loop = createSpektralRuntimeLoop({
+		canvas,
+		registry,
+		size: createCurrentWritable({ width: 0, height: 0 }),
+		dpr: createCurrentWritable(1),
+		maxDelta: createCurrentWritable(0.1),
+		getMaterial: () => material,
+		getRenderTargets: () => ({}),
+		getPasses: () => [],
+		getClearColor: () => [0, 0, 0, 1],
+		getAdapterOptions: () => undefined,
+		getDeviceDescriptor: () => undefined,
+		getOnError: () => undefined,
+		reportError: (report) => {
+			if (report) reports.push(report.code);
+		}
+	});
+	const read = async () => {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			const reader = await new Promise<FrameState['readStorageBuffer']>((resolve, reject) => {
+				onFrame = resolve;
+				timer = setTimeout(() => reject(new Error('Storage frame was not rendered')), 5000);
+				loop.advance();
+			});
+			return [...new Uint32Array(await reader('data'))];
+		} finally {
+			clearTimeout(timer);
+			onFrame = undefined;
+		}
+	};
+	try {
+		const first = await read();
+		material = materials[1]!;
+		const replacement = await read();
+		material = materials[0]!;
+		return { first, replacement, restored: await read(), reports };
+	} finally {
+		loop.destroy();
+		canvas.remove();
+	}
 }
 
 export async function readRenderTargetRecovery() {

@@ -1,5 +1,10 @@
 import type { CurrentReadable, CurrentWritable } from './current-value.js';
-import { resolveMaterial, type FragMaterial, type ResolvedMaterial } from './material.js';
+import {
+	hasSameStorageBufferInitialData,
+	resolveMaterial,
+	type FragMaterial,
+	type ResolvedMaterial
+} from './material.js';
 import {
 	toSpektralErrorReport,
 	type SpektralErrorPhase,
@@ -164,6 +169,7 @@ export function createSpektralRuntimeLoop(
 	let storageBufferKeys: readonly string[] = [];
 	let storageBufferKeySet = new Set<string>();
 	let storageBufferDefinitions: Readonly<StorageBufferDefinitionMap> = {};
+	let storageDataRevision = 0;
 	const pendingStorageWrites: PendingStorageWrite[] = [];
 	let shouldContinueAfterFrame = false;
 	let activeErrorKey: string | null = null;
@@ -391,6 +397,19 @@ export function createSpektralRuntimeLoop(
 		materialStorageBuffers: Readonly<StorageBufferDefinitionMap>
 	): void => {
 		const signatureChanged = activeMaterialSignature !== materialState.signature;
+		if (
+			!signatureChanged &&
+			!hasSameStorageBufferInitialData(
+				storageBufferDefinitions,
+				materialStorageBuffers,
+				materialState.storageBufferKeys
+			)
+		) {
+			// A compact hash match cannot prove byte equality. Keep retries and
+			// asynchronous renderer rebuilds distinct when initial data collides.
+			storageDataRevision += 1;
+		}
+		storageBufferDefinitions = materialStorageBuffers;
 		const defaultsChanged =
 			activeUniforms !== materialState.uniforms || activeTextures !== materialState.textures;
 
@@ -424,7 +443,6 @@ export function createSpektralRuntimeLoop(
 		textureKeySet = new Set(textureKeys);
 		storageBufferKeys = materialState.storageBufferKeys;
 		storageBufferKeySet = new Set(storageBufferKeys);
-		storageBufferDefinitions = materialStorageBuffers;
 		resetRuntimeMaps();
 		resetRenderPayloadMaps();
 		activeMaterialSignature = materialState.signature;
@@ -571,13 +589,13 @@ export function createSpektralRuntimeLoop(
 		const color = options.getColor?.();
 		const adapterOptions = options.getAdapterOptions();
 		const deviceDescriptor = options.getDeviceDescriptor();
-		const rendererSignature = buildRendererPipelineSignature({
+		syncMaterialRuntimeState(materialState, materialDeclaration.storageBuffers);
+		const rendererSignature = `${storageDataRevision}:${buildRendererPipelineSignature({
 			materialSignature: materialState.signature,
 			...(color !== undefined ? { color } : {}),
 			...(adapterOptions !== undefined ? { adapterOptions } : {}),
 			...(deviceDescriptor !== undefined ? { deviceDescriptor } : {})
-		});
-		syncMaterialRuntimeState(materialState, materialDeclaration.storageBuffers);
+		})}`;
 
 		if (failedRendererSignature && failedRendererSignature !== rendererSignature) {
 			failedRendererSignature = null;

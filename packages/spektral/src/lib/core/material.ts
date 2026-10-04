@@ -146,7 +146,8 @@ export interface ResolvedMaterial<
 	 */
 	readonly textureKeys: readonly TTextureKey[];
 	/**
-	 * Deterministic JSON signature for cache invalidation.
+	 * Deterministic JSON cache fingerprint. Matching storage-data hashes also
+	 * require an exact byte comparison before reusing renderer resources.
 	 */
 	readonly signature: string;
 	/**
@@ -550,6 +551,37 @@ function buildInitialDataSignature(data: StorageBufferDefinition['initialData'])
 }
 
 type StorageBufferInitialData = NonNullable<StorageBufferDefinition['initialData']>;
+const canonicalStorageData = new WeakMap<StorageBufferDefinition, StorageBufferInitialData>();
+
+/** @internal Compare immutable bytes after matching compact material fingerprints. */
+export function hasSameStorageBufferInitialData(
+	previous: Readonly<StorageBufferDefinitionMap>,
+	next: Readonly<StorageBufferDefinitionMap>,
+	keys: readonly string[]
+): boolean {
+	if (previous === next) return true;
+	for (const key of keys) {
+		const a = previous[key];
+		const b = next[key];
+		if (a === b) continue;
+		const left = a ? (canonicalStorageData.get(a) ?? a.initialData) : undefined;
+		const right = b ? (canonicalStorageData.get(b) ?? b.initialData) : undefined;
+		if (left === right) continue;
+		if (
+			!left ||
+			!right ||
+			left.constructor !== right.constructor ||
+			left.byteLength !== right.byteLength
+		)
+			return false;
+		const leftBytes = new Uint8Array(left.buffer, left.byteOffset, left.byteLength);
+		const rightBytes = new Uint8Array(right.buffer, right.byteOffset, right.byteLength);
+		for (let index = 0; index < leftBytes.length; index += 1) {
+			if (leftBytes[index] !== rightBytes[index]) return false;
+		}
+	}
+	return true;
+}
 
 function cloneStorageBufferInitialData(data: StorageBufferInitialData): StorageBufferInitialData {
 	return data.slice() as StorageBufferInitialData;
@@ -572,6 +604,7 @@ function cloneStorageBufferDefinition(
 
 	if (definition.initialData !== undefined) {
 		const canonicalInitialData = cloneStorageBufferInitialData(definition.initialData);
+		canonicalStorageData.set(cloned, canonicalInitialData);
 		Object.defineProperty(cloned, 'initialData', {
 			enumerable: true,
 			get: () => cloneStorageBufferInitialData(canonicalInitialData)

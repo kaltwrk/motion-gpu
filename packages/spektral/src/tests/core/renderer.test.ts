@@ -31,7 +31,7 @@ interface MockWebGpuRuntime {
 		features: GPUSupportedFeatures;
 		createShaderModule: ReturnType<typeof vi.fn>;
 		createSampler: ReturnType<typeof vi.fn>;
-		createTexture: ReturnType<typeof vi.fn>;
+		createTexture: ReturnType<typeof vi.fn<(descriptor: GPUTextureDescriptor) => GPUTexture>>;
 		createBindGroupLayout: ReturnType<typeof vi.fn>;
 		createPipelineLayout: ReturnType<typeof vi.fn>;
 		createRenderPipeline: ReturnType<typeof vi.fn>;

@@ -3,6 +3,7 @@ import {
 	applyMaterialDefines,
 	buildDefinesBlock,
 	defineMaterial,
+	hasSameStorageBufferInitialData,
 	resolveMaterial
 } from '../../lib/core/material';
 import type { StorageBufferDefinition, TypedUniform } from '../../lib/core/types';
@@ -883,6 +884,41 @@ fn colorize(uv: vec2f) -> vec4f {
 		);
 
 		expect(a.signature).not.toEqual(b.signature);
+	});
+
+	it('compares canonical storage bytes without copying or exposing them', () => {
+		const source = new Uint32Array([99, 1, 2, 99]);
+		const make = (initialData?: Uint32Array | Float32Array) =>
+			defineMaterial({
+				fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }',
+				storageBuffers: {
+					data: { size: 8, type: 'array<u32>', ...(initialData ? { initialData } : {}) }
+				}
+			}).storageBuffers;
+		const a = make(source.subarray(1, 3));
+		const b = make(new Uint32Array([1, 2]));
+		const different = make(new Uint32Array([1, 3]));
+		const short = make(new Uint32Array([1]));
+		const otherType = make(new Float32Array([1, 2]));
+		const absent = make();
+		const alsoAbsent = make();
+		const empty = make(new Uint32Array());
+		source[1] = 7;
+		(a.data!.initialData as Uint32Array)[0] = 9;
+		const copies = vi.spyOn(Uint32Array.prototype, 'slice');
+		try {
+			expect(hasSameStorageBufferInitialData(a, a, ['data'])).toBe(true);
+			expect(hasSameStorageBufferInitialData({ data: a.data! }, a, ['data'])).toBe(true);
+			expect(hasSameStorageBufferInitialData(a, b, ['data'])).toBe(true);
+			for (const next of [different, short, otherType, absent, {}]) {
+				expect(hasSameStorageBufferInitialData(a, next, ['data'])).toBe(false);
+			}
+			expect(hasSameStorageBufferInitialData(absent, alsoAbsent, ['data'])).toBe(true);
+			expect(hasSameStorageBufferInitialData(absent, empty, ['data'])).toBe(false);
+			expect(copies).not.toHaveBeenCalled();
+		} finally {
+			copies.mockRestore();
+		}
 	});
 
 	it('keeps storage buffer initialData signatures deterministic for identical content', () => {

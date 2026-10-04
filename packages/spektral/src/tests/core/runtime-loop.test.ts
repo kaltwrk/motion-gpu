@@ -774,6 +774,69 @@ describe('runtime-loop', () => {
 		loop.destroy();
 	});
 
+	it('rebuilds colliding storage data but reuses identical material bytes', async () => {
+		const first = [1364945411, 3212416462];
+		const colliding = [2409582172, 2899006390];
+		const makeMaterial = (values: number[]) =>
+			defineMaterial({
+				fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }',
+				storageBuffers: {
+					data: { size: 8, type: 'array<u32>', initialData: new Uint32Array(values) }
+				}
+			});
+		const a = makeMaterial(first);
+		const aCopy = makeMaterial(first);
+		const b = makeMaterial(colliding);
+		const bCopy = makeMaterial(colliding);
+		// These distinct byte sequences collide under the compact FNV-1a fingerprint.
+		expect(resolveMaterial(a).signature).toBe(resolveMaterial(b).signature);
+		resolveMaterial(aCopy);
+		resolveMaterial(bCopy);
+		const renderer = () => ({ render: vi.fn(), destroy: vi.fn(), flushStorageWrites: vi.fn() });
+		createRendererMock.mockImplementation(async () => renderer());
+		let material = a;
+		const loop = createSpektralRuntimeLoop({
+			canvas: createCanvas(),
+			registry: createFrameRegistry(),
+			size: createCurrentWritable({ width: 0, height: 0 }),
+			dpr: createCurrentWritable(1),
+			maxDelta: createCurrentWritable(1),
+			getMaterial: () => material,
+			getRenderTargets: () => ({}),
+			getPasses: () => [],
+			getClearColor: () => [0, 0, 0, 1],
+			getAdapterOptions: () => undefined,
+			getDeviceDescriptor: () => undefined,
+			getOnError: () => undefined,
+			reportError: vi.fn()
+		});
+		try {
+			await flushFrame(16);
+			await flushFrame(32);
+			material = aCopy;
+			await flushFrame(48);
+			expect(createRendererMock).toHaveBeenCalledTimes(1);
+			material = b;
+			await flushFrame(64);
+			expect(createRendererMock).toHaveBeenCalledTimes(2);
+			expect(
+				Array.from(createRendererMock.mock.lastCall![0].storageBufferDefinitions.data.initialData)
+			).toEqual(colliding);
+			await flushFrame(80);
+			material = bCopy;
+			await flushFrame(96);
+			expect(createRendererMock).toHaveBeenCalledTimes(2);
+			material = a;
+			await flushFrame(112);
+			expect(createRendererMock).toHaveBeenCalledTimes(3);
+			expect(
+				Array.from(createRendererMock.mock.lastCall![0].storageBufferDefinitions.data.initialData)
+			).toEqual(first);
+		} finally {
+			loop.destroy();
+		}
+	});
+
 	it('rebuilds renderer when storage buffer initialData changes with the same layout', async () => {
 		const registry = createFrameRegistry();
 		const firstRenderer: MockRenderer = {

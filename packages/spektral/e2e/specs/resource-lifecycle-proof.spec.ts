@@ -38,6 +38,21 @@ test('render targets recover after an invalid resize is reverted', async ({ page
 	expect(result.recovered).toEqual([result.before, result.before]);
 });
 
+test('colliding storage initial data reaches the GPU after a material change', async ({ page }) => {
+	const result = await page.evaluate(async (url) => {
+		const proof: typeof import('../resource-lifecycle-proof') = await import(
+			/* @vite-ignore */ url
+		);
+		return proof.readCollidingStorageData();
+	}, proofUrl);
+	expect(result).toEqual({
+		first: [1364945411, 3212416462],
+		replacement: [2409582172, 2899006390],
+		restored: [1364945411, 3212416462],
+		reports: []
+	});
+});
+
 for (const premultipliedAlpha of [true, false]) {
 	test(`texture upload honors initial and runtime premultipliedAlpha=${premultipliedAlpha}`, async ({
 		page
