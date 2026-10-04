@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Increase the bundle regression allowance from 5% to 7.5%, retaining the additional 1 KiB absolute-growth threshold and the existing baseline.
+
 ### Performance
 
 - Prepare managed compute and fragment-feedback pipelines asynchronously when the host supplies a readiness callback. Frames wait for every managed pipeline and its validation before submission; bounded caches retain working variants, stale completions cannot wake removed owners, and direct renderer hosts without a callback keep synchronous behavior.
