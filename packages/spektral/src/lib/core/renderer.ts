@@ -835,6 +835,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 
 		const ensurePingPongShaderTexturePair = (
 			pass: PingPongShaderPassLike,
+			frameState: FrameStateTransaction,
 			options: {
 				target: string;
 				width: number;
@@ -859,10 +860,6 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				return existing;
 			}
 
-			if (existing) {
-				destroyPingPongShaderTexturePair(existing);
-			}
-
 			assertTextureAllocationSize(
 				device,
 				options.width,
@@ -879,11 +876,13 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				format: options.format,
 				usage
 			});
+			frameState.onRollback(() => textureA.destroy());
 			const textureB = device.createTexture({
 				size: { width: options.width, height: options.height, depthOrArrayLayers: 1 },
 				format: options.format,
 				usage
 			});
+			frameState.onRollback(() => textureB.destroy());
 			const samplingLayout = resolveTextureSamplingLayout({
 				format: options.format,
 				filter: options.filter,
@@ -896,11 +895,13 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				addressModeV: options.addressModeV
 			});
 
+			const feedbackFrameBuffer = device.createBuffer({
+				size: 16,
+				usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+			});
+			frameState.onRollback(() => feedbackFrameBuffer.destroy());
 			const pair: PingPongShaderTexturePair = {
-				frameBuffer: device.createBuffer({
-					size: 16,
-					usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-				}),
+				frameBuffer: feedbackFrameBuffer,
 				target: options.target,
 				format: options.format,
 				width: options.width,
@@ -922,6 +923,16 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				needsClear: true
 			};
 			pingPongShaderTexturePairs.set(pass, pair);
+			frameState.onRollback(() => {
+				if (existing) {
+					pingPongShaderTexturePairs.set(pass, existing);
+					pass[selectFeedbackOwner](existing);
+				} else {
+					pingPongShaderTexturePairs.delete(pass);
+				}
+			});
+			// Earlier feedback bind groups can still reference the previous pair.
+			if (existing) frameState.afterSubmit(() => destroyPingPongShaderTexturePair(existing));
 			return pair;
 		};
 
@@ -2657,7 +2668,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 						);
 					}
 					const size = feedbackPass.resolveSize({ width, height });
-					const pair = ensurePingPongShaderTexturePair(feedbackPass, {
+					const pair = ensurePingPongShaderTexturePair(feedbackPass, frameState, {
 						target,
 						width: size.width,
 						height: size.height,

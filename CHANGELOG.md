@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed resizing chained fragment-feedback passes submitting destroyed textures and losing simulation initialization. Replaced pairs now survive until submission; failed frames restore the previous pair and release partial allocations.
+
 ## [0.17.2] - 2026-10-04
 
 ### Performance

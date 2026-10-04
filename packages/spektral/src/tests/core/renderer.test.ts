@@ -4058,6 +4058,81 @@ describe('createRenderer', () => {
 		}
 	);
 
+	it.each(['allocation', 'encoding', 'submission'] as const)(
+		'preserves feedback resources when a resize fails during %s',
+		async (failure) => {
+			const runtime = createWebGpuRuntime();
+			const { PingPongShaderPass } = await import('../../lib/passes/PingPongShaderPass');
+			const feedback = new PingPongShaderPass({
+				target: 'sim',
+				fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+			});
+			let fail = false;
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				textureKeys: ['sim'],
+				textureDefinitions: { sim: { colorSpace: 'linear' } },
+				passes: [
+					feedback,
+					{
+						needsSwap: false,
+						render() {
+							if (fail) throw new Error('Aborted resize');
+						}
+					}
+				]
+			});
+			const draw = (size: number) =>
+				renderer.render({
+					time: 0,
+					delta: 0.016,
+					renderMode: 'manual',
+					uniforms: {},
+					textures: {},
+					canvasSize: { width: size, height: size }
+				});
+			draw(8);
+			const oldTextures = runtime.textures.filter((t) => t.descriptor.format === 'rgba16float');
+			expect(oldTextures).toHaveLength(2);
+			const bufferCount = runtime.buffers.length;
+			const allocate = runtime.device.createTexture.getMockImplementation()!;
+			let resizedAllocations = 0;
+			if (failure === 'allocation')
+				runtime.device.createTexture.mockImplementation((descriptor: GPUTextureDescriptor) => {
+					if (descriptor.format === 'rgba16float' && ++resizedAllocations === 2)
+						throw new Error('Aborted resize');
+					return allocate(descriptor);
+				});
+			else if (failure === 'submission')
+				runtime.device.queue.submit.mockImplementationOnce(() => {
+					throw new Error('Aborted resize');
+				});
+			else fail = true;
+			expect(() => draw(16)).toThrow('Aborted resize');
+			for (const texture of oldTextures) expect(texture.destroy).not.toHaveBeenCalled();
+			const discardedTextures = runtime.textures.filter(
+				(t) => t.descriptor.format === 'rgba16float' && !oldTextures.includes(t)
+			);
+			for (const texture of discardedTextures) expect(texture.destroy).toHaveBeenCalledTimes(1);
+			for (const buffer of runtime.buffers.slice(bufferCount))
+				expect(buffer.destroy).toHaveBeenCalledTimes(1);
+			fail = false;
+			runtime.device.createTexture.mockImplementation(allocate);
+			draw(8);
+			expect(feedback.getCurrentOutput()).toBe('simA');
+			draw(16);
+			for (const texture of oldTextures) {
+				expect(texture.destroy).toHaveBeenCalledTimes(1);
+				expect(texture.destroy.mock.invocationCallOrder[0]).toBeGreaterThan(
+					runtime.device.queue.submit.mock.invocationCallOrder.at(-1)!
+				);
+			}
+			renderer.destroy();
+			for (const texture of [...oldTextures, ...discardedTextures])
+				expect(texture.destroy).toHaveBeenCalledTimes(1);
+		}
+	);
+
 	it('retries aborted compute feedback with the same read/write direction', async () => {
 		const runtime = createWebGpuRuntime();
 		const { PingPongComputePass } = await import('../../lib/passes/PingPongComputePass');

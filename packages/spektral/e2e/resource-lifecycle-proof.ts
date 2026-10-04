@@ -34,7 +34,7 @@ async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
 	if (!context) throw new Error('Canvas 2D context is unavailable');
 	return {
 		renderer,
-		async draw(textures: TextureMap = {}) {
+		async draw(textures: TextureMap = {}, canvasSize = { width: 2, height: 2 }) {
 			device.pushErrorScope('validation');
 			let pixel: number[];
 			let error: GPUError | null;
@@ -45,7 +45,7 @@ async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
 					renderMode: 'manual',
 					uniforms: {},
 					textures,
-					canvasSize: { width: 2, height: 2 }
+					canvasSize
 				});
 				context.drawImage(canvas, 0, 0);
 				pixel = [...context.getImageData(0, 0, 1, 1).data];
@@ -57,6 +57,39 @@ async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
 			return pixel;
 		}
 	};
+}
+
+export async function readFeedbackResize() {
+	const passes = [
+		new PingPongShaderPass({
+			target: 'stateA',
+			clearColor: [0.25, 0, 0, 1],
+			fragment: `fn frag(uv: vec2f) -> vec4f {
+				return vec4f(textureLoad(spektralPrevious, vec2i(0), 0).r + 0.125, 0.0, 0.0, 1.0);
+			}`
+		}),
+		new PingPongShaderPass({
+			target: 'stateB',
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return textureLoad(stateA, vec2i(0), 0); }'
+		})
+	];
+	const proof = await createProofRenderer(
+		defineMaterial({
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return textureLoad(stateB, vec2i(0), 0); }',
+			textures: { stateA: { colorSpace: 'linear' }, stateB: { colorSpace: 'linear' } }
+		}),
+		passes
+	);
+	try {
+		return [
+			(await proof.draw())[0]!,
+			(await proof.draw())[0]!,
+			(await proof.draw({}, { width: 4, height: 4 }))[0]!,
+			(await proof.draw({}, { width: 4, height: 4 }))[0]!
+		];
+	} finally {
+		proof.renderer.destroy();
+	}
 }
 
 export async function readComputeRemoval(

@@ -10,6 +10,22 @@ test.beforeEach(async ({ page }) => {
 	await page.goto('/resource-lifecycle-proof');
 });
 
+test('resizing chained shader feedback preserves valid textures and initialization', async ({
+	page
+}) => {
+	const result = await page.evaluate(async (url) => {
+		const proof: typeof import('../resource-lifecycle-proof') = await import(
+			/* @vite-ignore */ url
+		);
+		return proof.readFeedbackResize();
+	}, proofUrl);
+	const expected = [96, 128, 96, 128];
+	expect(result).toHaveLength(expected.length);
+	result.forEach((value, index) =>
+		expect(Math.abs(value - expected[index]!)).toBeLessThanOrEqual(1)
+	);
+});
+
 for (const premultipliedAlpha of [true, false]) {
 	test(`texture upload honors initial and runtime premultipliedAlpha=${premultipliedAlpha}`, async ({
 		page
