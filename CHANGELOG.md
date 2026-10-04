@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed the performance harness keeping on-demand rendering awake through its own frame counter. Idle probes now observe RAF callbacks without scheduling work. The real-renderer suite also checks steady-state allocation counts for odd/even feedback and dynamic mipmaps on the GPU.
+
 - Fixed canvas width and height being swapped under vertical CSS writing modes. Resize observation now uses physical content-box dimensions without additional layout reads.
 
 - Fixed storage-buffer initial data remaining stale when different byte sequences share a material hash. Matching fingerprints now receive an exact comparison of immutable bytes before renderer reuse, while identical data still avoids rebuilding.

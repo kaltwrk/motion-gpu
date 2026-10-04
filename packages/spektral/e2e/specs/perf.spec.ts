@@ -7,10 +7,43 @@ type PerfWindow = Window &
 			setMode: (mode: 'always' | 'on-demand' | 'manual') => void;
 			invalidate: () => void;
 			advance: () => void;
+			setTaskActive: (active: boolean) => void;
 		};
 	};
 
 test.describe('spektral perf scenario e2e', () => {
+	test('keeps both counters idle until invalidated, while an active noninvalidating task only wakes the CPU', async ({
+		page
+	}) => {
+		await page.goto('/?scenario=perf');
+		await expect(page.getByTestId('controls-ready')).toHaveText('yes');
+		await expect
+			.poll(async () => toNumber(await page.getByTestId('render-count').textContent()))
+			.toBeGreaterThan(0);
+		await page.evaluate(() => (window as PerfWindow).__SPEKTRAL_PERF__!.setMode('on-demand'));
+		await page.waitForTimeout(150);
+		const counters = () =>
+			page.evaluate(() => [
+				Number(document.querySelector('[data-testid="scheduler-count"]')!.textContent),
+				Number(document.querySelector('[data-testid="render-count"]')!.textContent)
+			]);
+		const idle = await counters();
+		await page.waitForTimeout(300);
+		expect(await counters()).toEqual(idle);
+		await page.evaluate(() => (window as PerfWindow).__SPEKTRAL_PERF__!.setTaskActive(true));
+		await page.waitForTimeout(150);
+		const active = await counters();
+		await page.waitForTimeout(300);
+		const running = await counters();
+		expect(running[0]).toBeGreaterThan(active[0]!);
+		expect(running[1]).toBe(active[1]);
+		await page.evaluate(() => (window as PerfWindow).__SPEKTRAL_PERF__!.setTaskActive(false));
+		await page.waitForTimeout(150);
+		const stopped = await counters();
+		await page.waitForTimeout(300);
+		expect(await counters()).toEqual(stopped);
+	});
+
 	test('exposes perf controls and applies render mode semantics', async ({ page }) => {
 		await page.goto('/?scenario=perf');
 		await expect(page.getByTestId('scenario')).toHaveText('perf');

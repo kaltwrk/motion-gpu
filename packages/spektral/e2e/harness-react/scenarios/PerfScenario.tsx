@@ -11,8 +11,12 @@ type PerfWindow = Window &
 			setMode: (mode: RenderMode) => void;
 			invalidate: () => void;
 			advance: () => void;
+			setTaskActive: (active: boolean) => void;
 		};
 	};
+
+const clearColor: [number, number, number, number] = [0, 0, 0, 1];
+const renderTargets = {};
 
 const material = defineMaterial({
 	fragment: `
@@ -91,7 +95,8 @@ export function PerfScenario() {
 		perfWindow.__SPEKTRAL_PERF__ = {
 			setMode,
 			invalidate: controls.invalidate,
-			advance: controls.advance
+			advance: controls.advance,
+			setTaskActive: controls.setTaskActive
 		};
 
 		return () => {
@@ -151,11 +156,13 @@ export function PerfScenario() {
 			<div className="canvas-shell">
 				<FragCanvas
 					material={material}
+					clearColor={clearColor}
+					renderTargets={renderTargets}
 					passes={passes}
 					showErrorOverlay={false}
 					onError={handleError}
 				>
-					<RuntimeProbe onFrame={setSchedulerCount} onReady={handleReady} />
+					<RuntimeProbe passive onFrame={setSchedulerCount} onReady={handleReady} />
 				</FragCanvas>
 			</div>
 		</main>

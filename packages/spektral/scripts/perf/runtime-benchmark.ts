@@ -81,6 +81,8 @@ interface RuntimeBenchmarkDocument {
 		manualAdvanceIntervalMs: number;
 		manualAdvanceLatencySamples: number;
 		computeStorageSampleFrames: number;
+		computeStorageMeasurement: 'synthetic-cache-helper';
+		schedulerMeasurement: 'delivered-page-raf-callbacks';
 	};
 	metrics: MetricMap;
 	invariants: {
@@ -594,7 +596,9 @@ async function runRuntimeBenchmark(harnessUrl: string): Promise<RuntimeBenchmark
 				resolve(SCRIPT_DIR, 'benchmark-schema.ts'),
 				resolve(SCRIPT_DIR, 'statistics.ts'),
 				E2E_CONFIG_PATH,
-				PERF_SCENARIO_PATH
+				PERF_SCENARIO_PATH,
+				resolve(PACKAGE_ROOT, 'e2e/harness/RuntimeProbe.svelte'),
+				resolve(PACKAGE_ROOT, 'e2e/observe-animation-frames.ts')
 			],
 			overrides: {
 				browser: {
@@ -626,7 +630,9 @@ async function runRuntimeBenchmark(harnessUrl: string): Promise<RuntimeBenchmark
 				manualAdvanceDurationMs: MANUAL_ADVANCE_DURATION_MS,
 				manualAdvanceIntervalMs: MANUAL_ADVANCE_INTERVAL_MS,
 				manualAdvanceLatencySamples: MANUAL_ADVANCE_LATENCY_SAMPLES,
-				computeStorageSampleFrames: COMPUTE_STORAGE_SAMPLE_FRAMES
+				computeStorageSampleFrames: COMPUTE_STORAGE_SAMPLE_FRAMES,
+				computeStorageMeasurement: 'synthetic-cache-helper',
+				schedulerMeasurement: 'delivered-page-raf-callbacks'
 			},
 			metrics,
 			invariants: {
