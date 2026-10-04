@@ -751,6 +751,92 @@ describe('createRenderer', () => {
 		);
 	});
 
+	it('keeps the entire named-target snapshot when replacement allocation fails', async () => {
+		const runtime = createWebGpuRuntime();
+		const initial = {
+			first: { width: 3, height: 3 },
+			second: { width: 4, height: 4 },
+			removed: { width: 5, height: 5 }
+		};
+		let targets: RenderTargetDefinitionMap = initial;
+		const render = vi.fn();
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			getRenderTargets: () => targets,
+			passes: [{ needsSwap: false, output: 'canvas', render }]
+		});
+		renderFrame(renderer);
+		const originalSnapshot = render.mock.lastCall![0].targets;
+		const originals = runtime.textures.filter((t) =>
+			[3, 4, 5].includes((t.descriptor.size as GPUExtent3DDict).width)
+		);
+		expect(originals).toHaveLength(3);
+		const allocate = runtime.device.createTexture.getMockImplementation()!;
+		runtime.device.createTexture.mockImplementation((descriptor: GPUTextureDescriptor) => {
+			if ((descriptor.size as GPUExtent3DDict).width === 7) throw new Error('Allocation failed');
+			return allocate(descriptor);
+		});
+		targets = { first: { width: 6, height: 6 }, second: { width: 7, height: 7 } };
+		expect(() => renderFrame(renderer)).toThrow('Allocation failed');
+		for (const texture of originals) expect(texture.destroy).not.toHaveBeenCalled();
+		const staged = runtime.textures.find(
+			(t) => (t.descriptor.size as GPUExtent3DDict).width === 6
+		)!;
+		expect(staged.destroy).toHaveBeenCalledTimes(1);
+		targets = initial;
+		renderFrame(renderer);
+		expect(render.mock.lastCall![0].targets).toBe(originalSnapshot);
+		runtime.device.createTexture.mockImplementation(allocate);
+		targets = { first: { width: 6, height: 6 }, second: { width: 7, height: 7 } };
+		renderFrame(renderer);
+		for (const texture of originals) expect(texture.destroy).toHaveBeenCalledTimes(1);
+		expect(Object.keys(render.mock.lastCall![0].targets)).toEqual(['first', 'second']);
+		renderer.destroy();
+		for (const texture of [...originals, staged]) expect(texture.destroy).toHaveBeenCalledTimes(1);
+	});
+
+	it.each(['source', 'target', 'presentation'] as const)(
+		'preserves the %s intermediate after a failed allocation',
+		async (slot) => {
+			const runtime = createWebGpuRuntime();
+			const renderer = await createRenderer({
+				...baseOptions(runtime),
+				...(slot === 'presentation'
+					? { color: { toneMapping: 'aces-hill' as const } }
+					: { passes: [new BlitPass()] })
+			});
+			const draw = (width: number) =>
+				renderer.render({
+					time: 0,
+					delta: 0.016,
+					renderMode: 'manual',
+					uniforms: {},
+					textures: {},
+					canvasSize: { width, height: width }
+				});
+			draw(8);
+			const originals = runtime.textures.filter(
+				(t) => (t.descriptor.size as GPUExtent3DDict).width === 8
+			);
+			const failedIndex = slot === 'target' ? 1 : 0;
+			const retained = originals[failedIndex]!;
+			expect(retained).toBeDefined();
+			const allocate = runtime.device.createTexture.getMockImplementation()!;
+			let allocations = 0;
+			runtime.device.createTexture.mockImplementation((descriptor: GPUTextureDescriptor) => {
+				if (allocations++ === failedIndex) throw new Error('Allocation failed');
+				return allocate(descriptor);
+			});
+			expect(() => draw(16)).toThrow('Allocation failed');
+			expect(retained.destroy).not.toHaveBeenCalled();
+			runtime.device.createTexture.mockImplementation(allocate);
+			draw(8);
+			expect(retained.destroy).not.toHaveBeenCalled();
+			renderer.destroy();
+			expect(retained.destroy).toHaveBeenCalledTimes(1);
+		}
+	);
+
 	it('reallocates scaled render targets when DPR-scaled canvas size changes', async () => {
 		const runtime = createWebGpuRuntime();
 		let dpr = 1;

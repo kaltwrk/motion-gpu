@@ -4,12 +4,21 @@ import { createSpektralRuntimeLoop } from '../src/lib/core/runtime-loop';
 import { BlitPass } from '../src/lib/passes/BlitPass';
 import { defineMaterial, resolveMaterial, type FragMaterial } from '../src/lib/core/material';
 import { createRenderer } from '../src/lib/core/renderer';
-import type { AnyPass, RenderPassContext, TextureMap } from '../src/lib/core/types';
+import type {
+	AnyPass,
+	RenderPassContext,
+	RenderTargetDefinitionMap,
+	TextureMap
+} from '../src/lib/core/types';
 import { ComputePass } from '../src/lib/passes/ComputePass';
 import { PingPongComputePass } from '../src/lib/passes/PingPongComputePass';
 import { PingPongShaderPass } from '../src/lib/passes/PingPongShaderPass';
 
-async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
+async function createProofRenderer(
+	material: FragMaterial,
+	passes: AnyPass[],
+	getRenderTargets?: () => RenderTargetDefinitionMap
+) {
 	const canvas = document.createElement('canvas');
 	const resolved = resolveMaterial(material);
 	const renderer = await createRenderer({
@@ -23,6 +32,7 @@ async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
 		textureDefinitions: resolved.textures,
 		storageTextureKeys: [...resolved.storageTextureKeys],
 		getPasses: () => passes,
+		...(getRenderTargets ? { getRenderTargets } : {}),
 		getDpr: () => 1,
 		getClearColor: () => [0, 0, 0, 1],
 		color: { outputEncoding: 'linear' }
@@ -57,6 +67,34 @@ async function createProofRenderer(material: FragMaterial, passes: AnyPass[]) {
 			return pixel;
 		}
 	};
+}
+
+export async function readRenderTargetRecovery() {
+	let width = 2;
+	const proof = await createProofRenderer(
+		defineMaterial({
+			fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(0.0, 1.0, 0.0, 1.0); }'
+		}),
+		[
+			new BlitPass({ output: 'history', needsSwap: false }),
+			new BlitPass({ input: 'history', output: 'source', needsSwap: false })
+		],
+		() => ({ history: { width, height: 2 } })
+	);
+	try {
+		const before = await proof.draw();
+		width = proof.renderer.getDevice!().limits.maxTextureDimension2D + 1;
+		let failure = '';
+		try {
+			await proof.draw();
+		} catch (error) {
+			failure = String(error);
+		}
+		width = 2;
+		return { before, failure, recovered: [await proof.draw(), await proof.draw()] };
+	} finally {
+		proof.renderer.destroy();
+	}
 }
 
 export async function readFeedbackResize() {

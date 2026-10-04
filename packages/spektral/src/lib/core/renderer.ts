@@ -1781,7 +1781,7 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 		let configuredHeight = 0;
 		let configuredCanvasFormat: GPUTextureFormat | null = null;
 		let configuredDynamicRange: EffectiveDynamicRange | null = null;
-		const runtimeRenderTargets = new Map<string, RuntimeRenderTarget>();
+		let runtimeRenderTargets = new Map<string, RuntimeRenderTarget>();
 		const activePasses: AnyPass[] = [];
 		const lifecyclePreviousSet = new Set<AnyPass>();
 		const lifecycleNextSet = new Set<AnyPass>();
@@ -2060,8 +2060,8 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				return current;
 			}
 
-			destroyRenderTexture(current);
 			const next = createRenderTexture(device, width, height, workingFormat);
+			destroyRenderTexture(current);
 			if (slot === 'source') {
 				sourceSlotTarget = next;
 			} else {
@@ -2082,8 +2082,9 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 				return presentationSlotTarget;
 			}
 
+			const next = createRenderTexture(device, width, height, workingFormat);
 			destroyRenderTexture(presentationSlotTarget);
-			presentationSlotTarget = createRenderTexture(device, width, height, workingFormat);
+			presentationSlotTarget = next;
 			return presentationSlotTarget;
 		};
 
@@ -2109,35 +2110,39 @@ export async function createRenderer(options: RendererOptions): Promise<Renderer
 			const nextSignature = buildRenderTargetSignature(resolvedDefinitions);
 
 			if (nextSignature !== renderTargetSignature) {
-				const activeKeys = new Set<string>();
-				for (const definition of resolvedDefinitions) {
-					activeKeys.add(definition.key);
-				}
-
-				for (const [key, target] of runtimeRenderTargets.entries()) {
-					if (!activeKeys.has(key)) {
-						target.texture.destroy();
-						runtimeRenderTargets.delete(key);
+				const nextTargets = new Map<string, RuntimeRenderTarget>();
+				const allocated: RuntimeRenderTarget[] = [];
+				try {
+					for (const definition of resolvedDefinitions) {
+						const current = runtimeRenderTargets.get(definition.key);
+						if (
+							current &&
+							current.width === definition.width &&
+							current.height === definition.height &&
+							current.format === definition.format
+						) {
+							nextTargets.set(definition.key, current);
+							continue;
+						}
+						const next = createRenderTexture(
+							device,
+							definition.width,
+							definition.height,
+							definition.format
+						);
+						allocated.push(next);
+						nextTargets.set(definition.key, next);
 					}
+				} catch (error) {
+					for (const target of allocated) destroyRenderTexture(target);
+					throw error;
 				}
 
-				for (const definition of resolvedDefinitions) {
-					const current = runtimeRenderTargets.get(definition.key);
-					if (
-						current &&
-						current.width === definition.width &&
-						current.height === definition.height &&
-						current.format === definition.format
-					) {
-						continue;
-					}
-
-					current?.texture.destroy();
-					runtimeRenderTargets.set(
-						definition.key,
-						createRenderTexture(device, definition.width, definition.height, definition.format)
-					);
+				// Publish the complete allocation set only after every replacement succeeds.
+				for (const [key, target] of runtimeRenderTargets) {
+					if (nextTargets.get(key) !== target) destroyRenderTexture(target);
 				}
+				runtimeRenderTargets = nextTargets;
 
 				renderTargetSignature = nextSignature;
 				const nextSnapshot: Record<string, RenderTarget> = {};

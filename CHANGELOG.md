@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed failed render-target resizing leaving cached views bound to destroyed textures. Named targets now replace their allocation set atomically, and internal intermediates retain their previous texture if allocation fails.
+
 - Fixed resizing chained fragment-feedback passes submitting destroyed textures and losing simulation initialization. Replaced pairs now survive until submission; failed frames restore the previous pair and release partial allocations.
 
 ## [0.17.2] - 2026-10-04

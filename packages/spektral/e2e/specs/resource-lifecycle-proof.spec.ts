@@ -26,6 +26,18 @@ test('resizing chained shader feedback preserves valid textures and initializati
 	);
 });
 
+test('render targets recover after an invalid resize is reverted', async ({ page }) => {
+	const result = await page.evaluate(async (url) => {
+		const proof: typeof import('../resource-lifecycle-proof') = await import(
+			/* @vite-ignore */ url
+		);
+		return proof.readRenderTargetRecovery();
+	}, proofUrl);
+	expect(result.failure).toContain('maxTextureDimension2D');
+	expect(result.before).toEqual([0, 255, 0, 255]);
+	expect(result.recovered).toEqual([result.before, result.before]);
+});
+
 for (const premultipliedAlpha of [true, false]) {
 	test(`texture upload honors initial and runtime premultipliedAlpha=${premultipliedAlpha}`, async ({
 		page
