@@ -1,6 +1,6 @@
 {
 	"name": "spektral",
-	"version": "0.17.1",
+	"version": "0.17.2",
 	"description": "Framework-agnostic WebGPU runtime for fullscreen WGSL shaders with explicit Svelte, React, and Vue adapter entrypoints.",
 	"keywords": [
 		"svelte",
