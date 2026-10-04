@@ -24,6 +24,8 @@ sidebar:
 
 ### Fixed
 
+- Fixed unrelated React parent renders waking an idle canvas through newly allocated default pass, target, and clear-color props. Each canvas now retains its own stable defaults while explicit prop changes still wake the runtime.
+
 - Fixed the performance harness keeping on-demand rendering awake through its own frame counter. Idle probes now observe RAF callbacks without scheduling work. The real-renderer suite also checks steady-state allocation counts for odd/even feedback and dynamic mipmaps on the GPU.
 
 - Fixed canvas width and height being swapped under vertical CSS writing modes. Resize observation now uses physical content-box dimensions without additional layout reads.

@@ -15,9 +15,6 @@ type PerfWindow = Window &
 		};
 	};
 
-const clearColor: [number, number, number, number] = [0, 0, 0, 1];
-const renderTargets = {};
-
 const material = defineMaterial({
 	fragment: `
 fn getFragmentUv() -> vec2f {
@@ -156,8 +153,6 @@ export function PerfScenario() {
 			<div className="canvas-shell">
 				<FragCanvas
 					material={material}
-					clearColor={clearColor}
-					renderTargets={renderTargets}
 					passes={passes}
 					showErrorOverlay={false}
 					onError={handleError}

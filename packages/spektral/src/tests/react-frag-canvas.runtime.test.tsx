@@ -8,7 +8,7 @@ import {
 import type { SpektralErrorReport } from '../lib/core/error-report.js';
 import { defineMaterial, type FragMaterial } from '../lib/core/material.js';
 import type { RenderMode } from '../lib/core/types.js';
-import { FragCanvas } from '../lib/react/FragCanvas.js';
+import { FragCanvas, type FragCanvasProps } from '../lib/react/FragCanvas.js';
 import type { SpektralContext } from '../lib/react/spektral-context.js';
 import { useSpektral } from '../lib/react/spektral-context.js';
 import { useFrame } from '../lib/react/frame-context.js';
@@ -1168,6 +1168,49 @@ describe('React FragCanvas runtime', () => {
 			expect(renderer.render).toHaveBeenCalled();
 		});
 	});
+
+	it.each(['renderTargets', 'passes', 'clearColor'] as const)(
+		'does not wake idle rendering when the default %s is unchanged',
+		async (omitted) => {
+			const renderer: MockRenderer = { render: vi.fn(), destroy: vi.fn() };
+			createRendererMock.mockResolvedValue(renderer);
+			const stable: Partial<FragCanvasProps> = {
+				renderTargets: {},
+				passes: [],
+				clearColor: [0, 0, 0, 1]
+			};
+			delete stable[omitted];
+			const view = render(
+				<FragCanvas {...stable} material={material} renderMode="on-demand" className="first" />
+			);
+			for (let frame = 0; frame < 8 && rafQueue.length > 0; frame++)
+				await flushFrame(16 + frame * 16);
+			expect(rafQueue).toHaveLength(0);
+			const count = renderer.render.mock.calls.length;
+			for (let i = 0; i < 10; i++)
+				view.rerender(
+					<FragCanvas
+						{...stable}
+						material={material}
+						renderMode="on-demand"
+						className={`update-${i}`}
+					/>
+				);
+			expect(rafQueue).toHaveLength(0);
+			expect(renderer.render).toHaveBeenCalledTimes(count);
+			view.rerender(
+				<FragCanvas
+					{...stable}
+					material={material}
+					renderMode="on-demand"
+					clearColor={[1, 0, 0, 1]}
+				/>
+			);
+			expect(rafQueue).toHaveLength(1);
+			await flushFrame(48);
+			expect(createRendererMock.mock.calls[0]![0].getClearColor()).toEqual([1, 0, 0, 1]);
+		}
+	);
 
 	runErrorHistoryContract('React', async ({ historyLimit: initialLimit, onErrorHistory }) => {
 		const renderer: MockRenderer = { render: vi.fn(), destroy: vi.fn() };
