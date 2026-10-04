@@ -667,7 +667,7 @@ describe('runtime-loop', () => {
 		expect(lateRenderer.destroy).toHaveBeenCalledTimes(1);
 	});
 
-	it.each(['manual', 'onDemand'] as const)(
+	it.each(['manual', 'on-demand'] as const)(
 		'renders async renderer readiness in %s mode without another user advance',
 		async (renderMode) => {
 			const registry = createFrameRegistry({ renderMode });
@@ -715,6 +715,8 @@ describe('runtime-loop', () => {
 			expect(rafQueue).toHaveLength(1);
 
 			await flushFrame(64); // readiness callback must render, not just run another RAF
+			expect(renderer.render).toHaveBeenCalledTimes(2);
+			if (renderMode === 'on-demand') await flushFrame(80); // final idle scheduling check
 			expect(renderer.render).toHaveBeenCalledTimes(2);
 			expect(rafQueue).toHaveLength(0);
 			loop.destroy();
