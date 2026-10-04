@@ -322,6 +322,8 @@ export function createBindGroupLayoutEntries(
 }
 
 const DIRTY_RANGE_MERGE_GAP = 4;
+// Bound queue-call overhead even when every other uniform changes.
+const MAX_DIRTY_RANGE_WRITES = 8;
 const EMPTY_DIRTY_RANGES: ReadonlyArray<{ start: number; count: number }> = [];
 
 export function findDirtyFloatRanges(
@@ -329,38 +331,22 @@ export function findDirtyFloatRanges(
 	next: Float32Array,
 	mergeGapThreshold = DIRTY_RANGE_MERGE_GAP
 ): ReadonlyArray<{ start: number; count: number }> {
-	let start = -1;
-	let rangeCount = 0;
-	const ranges: Array<{ start: number; count: number }> = [];
+	let ranges: Array<{ start: number; count: number }> | undefined;
+	let current: { start: number; count: number } | undefined;
 	for (let index = 0; index < next.length; index += 1) {
-		if (previous[index] !== next[index]) {
-			if (start === -1) start = index;
-			continue;
+		if (previous[index] === next[index]) continue;
+		if (current) {
+			const gap = index - (current.start + current.count);
+			if (gap === 0 || gap <= mergeGapThreshold) {
+				current.count = index + 1 - current.start;
+				continue;
+			}
 		}
-		if (start !== -1) {
-			ranges.push({ start, count: index - start });
-			rangeCount += 1;
-			start = -1;
-		}
+		if (ranges?.length === MAX_DIRTY_RANGE_WRITES) return [{ start: 0, count: next.length }];
+		current = { start: index, count: 1 };
+		(ranges ??= []).push(current);
 	}
-	if (start !== -1) {
-		ranges.push({ start, count: next.length - start });
-		rangeCount += 1;
-	}
-	if (rangeCount === 0) return EMPTY_DIRTY_RANGES;
-	if (rangeCount <= 1) return ranges;
-	const merged: Array<{ start: number; count: number }> = [ranges[0]!];
-	for (let index = 1; index < rangeCount; index += 1) {
-		const previousRange = merged[merged.length - 1]!;
-		const currentRange = ranges[index]!;
-		const gap = currentRange.start - (previousRange.start + previousRange.count);
-		if (gap <= mergeGapThreshold) {
-			previousRange.count = currentRange.start + currentRange.count - previousRange.start;
-		} else {
-			merged.push(currentRange);
-		}
-	}
-	return merged;
+	return ranges ?? EMPTY_DIRTY_RANGES;
 }
 
 export function createRenderTexture(

@@ -677,6 +677,38 @@ describe('createRenderer', () => {
 		expect(thirdWrites[1]?.[1]).toBeGreaterThan(0);
 	});
 
+	it('bounds fragmented uniform uploads and skips unchanged data after the full write', async () => {
+		const runtime = createWebGpuRuntime();
+		const layout = resolveUniformLayout(
+			Object.fromEntries(
+				Array.from({ length: 64 }, (_, i) => [
+					`u${String(i).padStart(2, '0')}`,
+					{ type: 'vec4f' as const, value: [0, 0, 0, 0] as [number, number, number, number] }
+				])
+			)
+		);
+		const renderer = await createRenderer({ ...baseOptions(runtime), uniformLayout: layout });
+		const uniforms: Record<string, [number, number, number, number]> = Object.fromEntries(
+			Array.from({ length: 64 }, (_, i) => [`u${String(i).padStart(2, '0')}`, [0, 0, 0, 0]])
+		);
+		const draw = () =>
+			renderer.render({ time: 0, delta: 0.016, renderMode: 'always', uniforms, textures: {} });
+		draw();
+		runtime.device.queue.writeBuffer.mockClear();
+		for (let i = 0; i < 64; i += 2) uniforms[`u${String(i).padStart(2, '0')}`]![0] = i + 1;
+		draw();
+		expect(runtime.device.queue.writeBuffer).toHaveBeenCalledTimes(2);
+		const upload = runtime.device.queue.writeBuffer.mock.calls[1]!;
+		expect(upload[1]).toBe(0);
+		expect(upload[4]).toBe(1024);
+		const packed = new Float32Array(upload[2], upload[3], upload[4] / 4);
+		for (let i = 0; i < 64; i++) expect(packed[i * 4]).toBe(i % 2 === 0 ? i + 1 : 0);
+		runtime.device.queue.writeBuffer.mockClear();
+		draw();
+		expect(runtime.device.queue.writeBuffer).toHaveBeenCalledOnce();
+		renderer.destroy();
+	});
+
 	it('manages pass and render-target lifecycle across frame-to-frame config changes', async () => {
 		const runtime = createWebGpuRuntime();
 		const passA: RenderPass = {
