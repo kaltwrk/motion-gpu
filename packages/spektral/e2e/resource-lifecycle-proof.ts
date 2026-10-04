@@ -70,6 +70,61 @@ async function createProofRenderer(
 	};
 }
 
+export async function readCanvasWritingMode(writingMode: string) {
+	const container = document.createElement('div');
+	container.style.writingMode = writingMode;
+	const canvas = document.createElement('canvas');
+	canvas.style.cssText =
+		'width:120px;height:40px;padding:3px;border:2px solid;box-sizing:content-box';
+	container.append(canvas);
+	document.body.append(container);
+	const size = createCurrentWritable({ width: 0, height: 0 });
+	let onFrame: (() => void) | undefined;
+	const reports: string[] = [];
+	const material = defineMaterial({
+		fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }'
+	});
+	const pass: AnyPass = { needsSwap: false, render: () => onFrame?.() };
+	const loop = createSpektralRuntimeLoop({
+		canvas,
+		registry: createFrameRegistry({ renderMode: 'manual' }),
+		size,
+		dpr: createCurrentWritable(1),
+		maxDelta: createCurrentWritable(0.1),
+		getMaterial: () => material,
+		getRenderTargets: () => ({}),
+		getPasses: () => [pass],
+		getClearColor: () => [0, 0, 0, 1],
+		getAdapterOptions: () => undefined,
+		getDeviceDescriptor: () => undefined,
+		getOnError: () => undefined,
+		reportError: (report) => {
+			if (report) reports.push(report.code);
+		}
+	});
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		// Let the native ResizeObserver deliver the content box before advancing.
+		await new Promise<void>((resolve) =>
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+		);
+		await new Promise<void>((resolve, reject) => {
+			onFrame = resolve;
+			timer = setTimeout(() => reject(new Error('Canvas frame was not rendered')), 5000);
+			loop.advance();
+		});
+		return {
+			observed: size.current,
+			backing: { width: canvas.width, height: canvas.height },
+			reports
+		};
+	} finally {
+		clearTimeout(timer);
+		loop.destroy();
+		container.remove();
+	}
+}
+
 export async function readCollidingStorageData() {
 	const values = [
 		[1364945411, 3212416462],

@@ -1360,10 +1360,13 @@ describe('runtime-loop resize behavior', () => {
 	let mockROInstances: MockRO[] = [];
 	let rafQueue2: FrameRequestCallback[] = [];
 
-	function fireMockRO(instance: MockRO, inlineSize: number, blockSize: number): void {
+	function fireMockRO(instance: MockRO, width: number, height: number, vertical = false): void {
 		instance.callback([
 			{
-				contentBoxSize: [{ inlineSize, blockSize }]
+				contentBoxSize: [
+					{ inlineSize: vertical ? height : width, blockSize: vertical ? width : height }
+				],
+				contentRect: { width, height }
 			} as unknown as ResizeObserverEntry
 		]);
 	}
@@ -1451,50 +1454,53 @@ describe('runtime-loop resize behavior', () => {
 		expect(mockROInstances[0]!.disconnect).toHaveBeenCalledTimes(1);
 	});
 
-	it('uses ResizeObserver dimensions instead of getBoundingClientRect when available', async () => {
-		const getBoundingClientRectSpy = vi.fn(() => ({ width: 99, height: 99 }));
-		const canvas = {
-			width: 0,
-			height: 0,
-			getBoundingClientRect: getBoundingClientRectSpy,
-			getContext: () => null
-		} as unknown as HTMLCanvasElement;
+	it.each([false, true])(
+		'uses physical ResizeObserver dimensions without a layout read (vertical=%s)',
+		async (vertical) => {
+			const getBoundingClientRectSpy = vi.fn(() => ({ width: 99, height: 99 }));
+			const canvas = {
+				width: 0,
+				height: 0,
+				getBoundingClientRect: getBoundingClientRectSpy,
+				getContext: () => null
+			} as unknown as HTMLCanvasElement;
 
-		const size = createCurrentWritable({ width: 0, height: 0 });
-		const registry = createFrameRegistry();
-		const renderer = { render: vi.fn(), destroy: vi.fn() };
-		createRendererMock.mockResolvedValue(renderer);
+			const size = createCurrentWritable({ width: 0, height: 0 });
+			const registry = createFrameRegistry();
+			const renderer = { render: vi.fn(), destroy: vi.fn() };
+			createRendererMock.mockResolvedValue(renderer);
 
-		const loop = createSpektralRuntimeLoop({
-			canvas,
-			registry,
-			size,
-			dpr: { current: 1, subscribe: () => () => undefined },
-			maxDelta: { current: 1, subscribe: () => () => undefined },
-			getMaterial: () => material,
-			getRenderTargets: () => ({}),
-			getPasses: () => [],
-			getClearColor: () => [0, 0, 0, 1],
-			getAdapterOptions: () => undefined,
-			getDeviceDescriptor: () => undefined,
-			getOnError: () => undefined,
-			reportError: () => undefined
-		});
+			const loop = createSpektralRuntimeLoop({
+				canvas,
+				registry,
+				size,
+				dpr: { current: 1, subscribe: () => () => undefined },
+				maxDelta: { current: 1, subscribe: () => () => undefined },
+				getMaterial: () => material,
+				getRenderTargets: () => ({}),
+				getPasses: () => [],
+				getClearColor: () => [0, 0, 0, 1],
+				getAdapterOptions: () => undefined,
+				getDeviceDescriptor: () => undefined,
+				getOnError: () => undefined,
+				reportError: () => undefined
+			});
 
-		// Fire ResizeObserver with explicit dimensions
-		fireMockRO(mockROInstances[0]!, 320, 240);
+			// Fire ResizeObserver with explicit dimensions
+			fireMockRO(mockROInstances[0]!, 320, 240, vertical);
 
-		// Flush the frame scheduled by the ResizeObserver callback
-		await flushFrame2(16);
-		await flushFrame2(32);
+			// Flush the frame scheduled by the ResizeObserver callback
+			await flushFrame2(16);
+			await flushFrame2(32);
 
-		// getBoundingClientRect must NOT be called during normal frame rendering
-		// when ResizeObserver has already provided dimensions.
-		expect(getBoundingClientRectSpy).not.toHaveBeenCalled();
-		expect(size.current).toEqual({ width: 320, height: 240 });
+			// getBoundingClientRect must NOT be called during normal frame rendering
+			// when ResizeObserver has already provided dimensions.
+			expect(getBoundingClientRectSpy).not.toHaveBeenCalled();
+			expect(size.current).toEqual({ width: 320, height: 240 });
 
-		loop.destroy();
-	});
+			loop.destroy();
+		}
+	);
 
 	it('uses ResizeObserver contentRect dimensions when contentBoxSize is unavailable', async () => {
 		const getBoundingClientRectSpy = vi.fn(() => ({ width: 99, height: 99 }));

@@ -53,6 +53,25 @@ test('colliding storage initial data reaches the GPU after a material change', a
 	});
 });
 
+for (const writingMode of ['horizontal-tb', 'vertical-rl', 'vertical-lr']) {
+	test(`canvas uses physical content dimensions in ${writingMode}`, async ({ page }) => {
+		const result = await page.evaluate(
+			async ({ url, writingMode }) => {
+				const proof: typeof import('../resource-lifecycle-proof') = await import(
+					/* @vite-ignore */ url
+				);
+				return proof.readCanvasWritingMode(writingMode);
+			},
+			{ url: proofUrl, writingMode }
+		);
+		expect(result).toEqual({
+			observed: { width: 120, height: 40 },
+			backing: { width: 120, height: 40 },
+			reports: []
+		});
+	});
+}
+
 for (const premultipliedAlpha of [true, false]) {
 	test(`texture upload honors initial and runtime premultipliedAlpha=${premultipliedAlpha}`, async ({
 		page

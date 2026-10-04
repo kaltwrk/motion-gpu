@@ -122,15 +122,9 @@ export function createSpektralRuntimeLoop(
 				return;
 			}
 
-			const boxSize = entry.contentBoxSize?.[0];
-			if (boxSize) {
-				observedCssWidth = Math.max(0, Math.floor(boxSize.inlineSize));
-				observedCssHeight = Math.max(0, Math.floor(boxSize.blockSize));
-			} else {
-				// Fallback for browsers without contentBoxSize support.
-				observedCssWidth = Math.max(0, Math.floor(entry.contentRect.width));
-				observedCssHeight = Math.max(0, Math.floor(entry.contentRect.height));
-			}
+			// Canvas resolution uses physical axes; inline/block swap in vertical writing modes.
+			observedCssWidth = Math.max(0, Math.floor(entry.contentRect.width));
+			observedCssHeight = Math.max(0, Math.floor(entry.contentRect.height));
 
 			if (!isDisposed) {
 				scheduleFrame();
