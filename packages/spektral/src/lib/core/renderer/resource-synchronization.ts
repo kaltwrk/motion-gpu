@@ -202,6 +202,14 @@ export function createGpuMipmapGenerator(device: GPUDevice): GpuMipmapGenerator 
 	let bindGroupLayout: GPUBindGroupLayout | null = null;
 	let pipelineLayout: GPUPipelineLayout | null = null;
 	const pipelineByFormat = new Map<GPUTextureFormat, GPURenderPipeline>();
+	// Weak ownership lets replacement uploads release their mip resources together.
+	const resourcesByTexture = new WeakMap<
+		GPUTexture,
+		{
+			views: GPUTextureView[];
+			groups: GPUBindGroup[];
+		}
+	>();
 	const ensureBindGroupLayout = (): GPUBindGroupLayout => {
 		bindGroupLayout ??= device.createBindGroupLayout({
 			entries: [
@@ -232,16 +240,27 @@ export function createGpuMipmapGenerator(device: GPUDevice): GpuMipmapGenerator 
 			sampler ??= device.createSampler({ minFilter: 'linear', magFilter: 'linear' });
 			const layout = ensureBindGroupLayout();
 			const pipeline = ensurePipeline(format);
+			let resources = resourcesByTexture.get(texture);
+			if (!resources) {
+				resources = { views: [], groups: [] };
+				resourcesByTexture.set(texture, resources);
+			}
 			for (let level = 1; level < mipLevelCount; level += 1) {
-				const sourceView = texture.createView({ baseMipLevel: level - 1, mipLevelCount: 1 });
-				const targetView = texture.createView({ baseMipLevel: level, mipLevelCount: 1 });
-				const bindGroup = device.createBindGroup({
+				const sourceView = (resources.views[level - 1] ??= texture.createView({
+					baseMipLevel: level - 1,
+					mipLevelCount: 1
+				}));
+				const targetView = (resources.views[level] ??= texture.createView({
+					baseMipLevel: level,
+					mipLevelCount: 1
+				}));
+				const bindGroup = (resources.groups[level - 1] ??= device.createBindGroup({
 					layout,
 					entries: [
 						{ binding: 0, resource: sampler },
 						{ binding: 1, resource: sourceView }
 					]
-				});
+				}));
 				const pass = commandEncoder.beginRenderPass({
 					colorAttachments: [
 						{

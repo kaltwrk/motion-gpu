@@ -1857,6 +1857,46 @@ describe('createRenderer', () => {
 		expect(runtime.commandEncoders[1]?.beginRenderPass).toHaveBeenCalledTimes(4);
 	});
 
+	it('reuses mipmap views and bindings until the source allocation changes', async () => {
+		const runtime = createWebGpuRuntime();
+		const source = document.createElement('canvas');
+		const renderer = await createRenderer({
+			...baseOptions(runtime),
+			textureKeys: ['uTex'],
+			textureDefinitions: { uTex: { generateMipmaps: true, update: 'perFrame' } }
+		});
+		for (const size of [1024, 256]) {
+			source.width = source.height = size;
+			const frame = () =>
+				renderer.render({
+					time: 0,
+					delta: 0.016,
+					renderMode: 'always',
+					uniforms: {},
+					textures: { uTex: source }
+				});
+			frame();
+			const texture = runtime.textures.find(
+				(texture) => (texture.descriptor.size as GPUExtent3DDict).width === size
+			)!;
+			const count = runtime.device.createBindGroup.mock.calls.length;
+			const views = texture.createView.mock.calls.length;
+			for (let i = 0; i < 100; i++) frame();
+			expect(runtime.device.createBindGroup).toHaveBeenCalledTimes(count);
+			expect(texture.createView).toHaveBeenCalledTimes(views);
+			const levels = Math.log2(size) + 1;
+			const mipViews = texture.createView.mock.calls.filter(
+				([descriptor]) => descriptor?.mipLevelCount === 1
+			);
+			expect(mipViews).toHaveLength(levels);
+			expect(mipViews.map(([descriptor]) => descriptor.baseMipLevel)).toEqual(
+				Array.from({ length: levels }, (_, index) => index)
+			);
+			expect(runtime.commandEncoders.at(-1)!.beginRenderPass).toHaveBeenCalledTimes(levels);
+		}
+		renderer.destroy();
+	});
+
 	it('uses a premultiplied direct canvas scene pipeline when no render passes are active', async () => {
 		const runtime = createWebGpuRuntime();
 		const renderer = await createRenderer({

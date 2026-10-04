@@ -12,6 +12,8 @@ sidebar:
 
 ### Performance
 
+- Cache mipmap views and bind groups for each GPU texture allocation. Repeated dynamic uploads now reuse one view per mip level and create no additional mipmap bindings after warmup; resized uploads receive a separate cache.
+
 - Reuse scene and fragment-feedback bind groups across alternating texture views. Each pipeline and frame-buffer pair retains at most two resource combinations, and chained feedback updates rebuild the scene binding only after the final output is known.
 
 - Allocate the postprocessing target only when a pass reads or swaps it. Direct source-to-canvas passes now use two full-size intermediates instead of three; unused targets are released after a successful submission.
