@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Performance
+
+- Read storage-buffer initial data once during renderer creation, reducing defensive copies from three to one. A 16 MiB upload now copies 16 MiB instead of 48 MiB while preserving material isolation.
+
 ### Fixed
 
 - Fixed canvas width and height being swapped under vertical CSS writing modes. Resize observation now uses physical content-box dimensions without additional layout reads.

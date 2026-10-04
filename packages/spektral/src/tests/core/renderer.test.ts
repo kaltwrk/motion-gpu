@@ -2673,6 +2673,57 @@ describe('createRenderer', () => {
 		renderer.destroy();
 	});
 
+	it.each([0, 16 * 1024 * 1024])(
+		'copies %i initial bytes only once when creating a storage buffer',
+		async (byteLength) => {
+			const runtime = createWebGpuRuntime();
+			const initialData = new Float32Array(byteLength / Float32Array.BYTES_PER_ELEMENT);
+			if (initialData.length) {
+				initialData[0] = 1.25;
+				initialData[initialData.length - 1] = 9.5;
+			}
+			const material = defineMaterial({
+				fragment: 'fn frag(uv: vec2f) -> vec4f { return vec4f(1.0); }',
+				storageBuffers: { data: { size: Math.max(4, byteLength), type: 'array<f32>', initialData } }
+			});
+			const copies = vi.spyOn(Float32Array.prototype, 'slice');
+			let renderer: Awaited<ReturnType<typeof createRenderer>> | undefined;
+			try {
+				renderer = await createRenderer({
+					...baseOptions(runtime),
+					storageBufferKeys: ['data'],
+					storageBufferDefinitions: material.storageBuffers
+				});
+				const storageBuffer = renderer.getStorageBuffer!('data');
+				const uploads = runtime.device.queue.writeBuffer.mock.calls.filter(
+					([buffer]) => buffer === storageBuffer
+				);
+				expect(uploads).toHaveLength(byteLength ? 1 : 0);
+				if (byteLength) {
+					const upload = uploads[0]!;
+					expect(upload[4]).toBe(byteLength);
+					const bytes = new Float32Array(
+						upload[2] as ArrayBuffer,
+						upload[3] as number,
+						byteLength / 4
+					);
+					expect(bytes[0]).toBe(1.25);
+					expect(bytes.at(-1)).toBe(9.5);
+				}
+				expect(copies).toHaveBeenCalledTimes(1);
+				expect(
+					copies.mock.results.reduce(
+						(total, result) => total + (result.value as Float32Array).byteLength,
+						0
+					)
+				).toBe(byteLength);
+			} finally {
+				copies.mockRestore();
+				renderer?.destroy();
+			}
+		}
+	);
+
 	it('destroys storage buffers on renderer.destroy()', async () => {
 		const runtime = createWebGpuRuntime();
 		const renderer = await createRenderer({
