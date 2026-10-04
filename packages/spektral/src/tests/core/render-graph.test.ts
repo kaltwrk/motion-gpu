@@ -655,6 +655,32 @@ fn compute(@builtin(global_invocation_id) id: vec3u) { _ = id; }
 		expect(plan.steps[0]?.clearColor).toEqual([0.5, 0.6, 0.7, 1]);
 	});
 
+	it.each([32, 128, 512])('checks %i compute steps with a linear number of pass reads', (count) => {
+		const passes = Array.from({ length: count }, () => createManagedComputePass());
+		const resources = new Map<AnyPass, ResolvedComputePassResources>(
+			passes.map((pass) => [pass, computeResources({})])
+		);
+		const plan = planRenderGraph(passes, [0, 0, 0, 1], undefined, {
+			getResolvedResources: (pass) => resources.get(pass)
+		});
+		let reads = 0;
+		for (const step of plan.computeSteps) {
+			const pass = step.pass;
+			Object.defineProperty(step, 'pass', {
+				get() {
+					reads++;
+					return pass;
+				}
+			});
+		}
+		expect(hasSameRenderGraphPhysicalAccessSignature(plan, resources)).toBe(true);
+		expect(reads).toBeLessThanOrEqual(count * 2);
+		resources.delete(passes[0]!);
+		expect(hasSameRenderGraphPhysicalAccessSignature(plan, resources)).toBe(false);
+		resources.set(createManagedComputePass(), computeResources({}));
+		expect(hasSameRenderGraphPhysicalAccessSignature(plan, resources)).toBe(false);
+	});
+
 	it('reuses duplicate pass occurrences only while their full physical signature is unchanged', () => {
 		const pass = createManagedComputePass();
 		const physicalA = {};

@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Performance
 
+- Validate cached compute-graph resource access in linear time by recording the distinct pass count during planning. Repeated pass instances and changed physical resource identities still invalidate the cache correctly.
+
 - Limit fragmented uniform uploads to eight partial writes, falling back to one full upload when that budget is exceeded. Dirty-range detection now merges ranges in one scan and allocates nothing for unchanged data.
 
 - Cache renderer signatures and managed-pass pipeline keys while shader inputs remain unchanged. Steady frames avoid serializing full WGSL and rebuilding feedback binding descriptors; mutable device/color options, resource topology changes, and storage-data revisions still invalidate the appropriate cache.
