@@ -30,13 +30,10 @@ test.describe('spektral perf scenario e2e', () => {
 		const idle = await counters();
 		await page.waitForTimeout(300);
 		expect(await counters()).toEqual(idle);
-		await page.evaluate(() => (window as PerfWindow).__SPEKTRAL_PERF__!.setTaskActive(true));
-		await page.waitForTimeout(150);
 		const active = await counters();
-		await page.waitForTimeout(300);
-		const running = await counters();
-		expect(running[0]).toBeGreaterThan(active[0]!);
-		expect(running[1]).toBe(active[1]);
+		await page.evaluate(() => (window as PerfWindow).__SPEKTRAL_PERF__!.setTaskActive(true));
+		await expect.poll(async () => (await counters())[0]).toBeGreaterThan(active[0]!);
+		expect((await counters())[1]).toBe(active[1]);
 		await page.evaluate(() => (window as PerfWindow).__SPEKTRAL_PERF__!.setTaskActive(false));
 		await page.waitForTimeout(150);
 		const stopped = await counters();
