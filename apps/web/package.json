@@ -56,6 +56,7 @@
 		"test": "vitest run",
 		"test:e2e": "playwright test --config tests/playwright.config.ts",
 		"test:watch": "vitest",
+		"prelint": "pnpm --dir ../../packages/spektral run build",
 		"lint": "eslint . && pnpm run lint:config",
 		"lint:config": "node --test ../../scripts/eslint/shared-preset.test.mjs ./scripts/lint/config-coverage.test.mjs && node ./scripts/lint/config-coverage.mjs",
 		"format": "oxfmt",

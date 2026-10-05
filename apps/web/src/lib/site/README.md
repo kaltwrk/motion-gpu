@@ -180,7 +180,7 @@ omitted from the Markdown search index and `llms.txt`.
 
 For an editor, canvas or dashboard that must fill the available pane, set
 `view.layout: workspace` in its root index metadata. The default `article` layout adds a scroll
-container and a readable content width. Each playground content page renders
+container and a readable content width. The playground workspace and demo pages render
 the shared `PlaygroundPage` component.
 It loads the editor on mount and disposes its controller when navigating away.
 The controller, editor and preview UI live in `lib/features/playground`.
@@ -206,17 +206,18 @@ Keep `themeColor` in `site.ts` aligned with your CSS browser background colors.
 ## Playground and hosting
 
 `/playground` is a registered view, rendered through the shared content route.
-Its sidebar comes from the files under `content/playground`. Spektral Logo uses
-`index.svelte`; other filenames define their URLs. Each page holds its title,
-description, order and `data.demo` ID, then passes the ID and title to
-`PlaygroundPage`. See `content/playground/diamond.svelte` for a complete example.
+Its sidebar comes from the files under `content/playground`. The `index.svelte`
+page opens an empty editor when it has no `data.demo` ID. Demo filenames define
+their URLs. Each demo page holds its title, description, order and `data.demo` ID,
+then passes the ID and title to `PlaygroundPage`.
 There is no separate demo registration list. Add the matching framework sources
 under `demos/<data.demo>/`; the editor derives its catalog from the content metadata.
 A new page also gets a sitemap entry and an OG image.
 
 The framework switcher sits over the preview's top-right corner. The selected
 framework is saved between demos and included in shared URLs. Existing
-`/playground?demo=<id>` links navigate to the corresponding demo page.
+`/playground?demo=<id>` links navigate to the corresponding demo page when the
+index hosts the default demo.
 
 `/playground/embed` remains a separate server endpoint for the sandboxed iframe.
 It is infrastructure, not a second application shell. Renaming a view does not

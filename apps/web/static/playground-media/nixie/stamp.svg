@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="256" viewBox="0 0 512 256">
+  <title>Spektral fictional glass inspection stamp</title>
+  <desc>Original diamond S and 74 / 06 marking. White is ink coverage; black is unprinted glass. Linear mask, not a historical manufacturer reproduction.</desc>
+  <rect width="512" height="256" fill="#000"/>
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M256 24 L304 79 L256 134 L208 79 Z" stroke-width="3.1"/>
+    <path d="M271 59 C263 51 242 52 241 65 C240 78 271 75 272 89 C273 104 250 109 240 99" stroke-width="4.0"/>
+    <path d="M155 175 L180 175 L162 216" stroke-width="3.4"/>
+    <path d="M211 174 L193 201 L219 201 M212 181 L212 216" stroke-width="3.4"/>
+    <path d="M246 216 L259 175" stroke-width="2.7"/>
+    <path d="M296 174 C286 174 283 181 283 195 C283 209 286 217 296 217 C306 217 309 209 309 195 C309 181 306 174 296 174 Z" stroke-width="3.4"/>
+    <path d="M355 176 C351 173 344 173 340 179 C334 186 333 201 337 211 C340 220 355 219 357 206 C359 194 346 189 336 199" stroke-width="3.4"/>
+  </g>
+  <!-- Static sub-pixel loss of print; kept sparse for legibility on glass. -->
+  <circle cx="256" cy="24.5" r="0.64" fill="rgb(0,0,0)"/>
+  <circle cx="277.4" cy="48.5" r="0.56" fill="rgb(28,28,28)"/>
+  <circle cx="299.0" cy="83.8" r="0.74" fill="rgb(0,0,0)"/>
+  <circle cx="277.0" cy="110.0" r="0.45" fill="rgb(0,0,0)"/>
+  <circle cx="245.0" cy="121.7" r="0.78" fill="rgb(22,22,22)"/>
+  <circle cx="218.5" cy="91.0" r="0.57" fill="rgb(0,0,0)"/>
+  <circle cx="223.6" cy="61.2" r="0.88" fill="rgb(0,0,0)"/>
+  <circle cx="249.0" cy="55.1" r="0.55" fill="rgb(0,0,0)"/>
+  <circle cx="268.1" cy="84.7" r="0.7" fill="rgb(32,32,32)"/>
+  <circle cx="254.8" cy="104.4" r="0.58" fill="rgb(0,0,0)"/>
+  <circle cx="157.7" cy="175" r="0.68" fill="rgb(0,0,0)"/>
+  <circle cx="171.3" cy="194.0" r="0.72" fill="rgb(0,0,0)"/>
+  <circle cx="194.1" cy="201" r="0.65" fill="rgb(0,0,0)"/>
+  <circle cx="212" cy="211" r="0.64" fill="rgb(35,35,35)"/>
+  <circle cx="250.0" cy="204.0" r="0.6" fill="rgb(0,0,0)"/>
+  <circle cx="284.0" cy="184.5" r="0.72" fill="rgb(0,0,0)"/>
+  <circle cx="300" cy="216" r="0.71" fill="rgb(0,0,0)"/>
+  <circle cx="309" cy="193" r="0.52" fill="rgb(40,40,40)"/>
+  <circle cx="341" cy="177.9" r="0.65" fill="rgb(0,0,0)"/>
+  <circle cx="354.7" cy="213.7" r="0.8" fill="rgb(0,0,0)"/>
+</svg>

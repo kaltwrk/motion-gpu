@@ -683,7 +683,7 @@ export const createPlaygroundController = (
 		if (resolvedFramework === activeFramework) return;
 
 		const demoVariant = getPlaygroundDemoVariant(activeDemoId, resolvedFramework);
-		if (!demoVariant) return;
+		if (activeDemoId && !demoVariant) return;
 
 		activeFramework = resolvedFramework;
 		errorMessage = '';

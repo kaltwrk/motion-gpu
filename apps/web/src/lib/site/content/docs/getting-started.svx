@@ -65,7 +65,7 @@ useFrame((state) => {
 });
 ```
 
-The [Frame Scheduler](/docs/frame-scheduler) documents registration and invalidation. The [playground](/playground/diamond?framework=svelte) contains complete, editable applications for every adapter.
+The [Frame Scheduler](/docs/frame-scheduler) documents registration and invalidation. Use the [playground](/playground) to write and preview applications in each adapter.
 
 ## Production baseline
 

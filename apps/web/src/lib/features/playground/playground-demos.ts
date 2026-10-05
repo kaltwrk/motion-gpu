@@ -1,4 +1,5 @@
 import { getPlaygroundPages } from './playground-pages';
+import { relocateDemoImports } from './playground-source-paths';
 
 const playgroundPages = getPlaygroundPages();
 
@@ -17,6 +18,13 @@ type PlaygroundDemoDefinition = {
 };
 
 const demoFileModules = import.meta.glob('/src/lib/site/demos/**/*', {
+	query: '?raw',
+	import: 'default',
+	eager: true
+}) as Record<string, string>;
+
+// The same studio source is editable in each demo, but maintained once in the repository.
+const sharedFileModules = import.meta.glob('/src/lib/site/demo-shared/**/*', {
 	query: '?raw',
 	import: 'default',
 	eager: true
@@ -68,16 +76,29 @@ const demoFilesById = Object.entries(demoFileModules).reduce<
 	return acc;
 }, {});
 
-const buildVariantAdditionalFiles = (
+const buildVariant = (
+	demoId: string,
 	files: Record<string, string>,
 	framework: PlaygroundFramework
-): Record<string, string> => {
-	const output: Record<string, string> = {};
+): PlaygroundDemoVariant => {
+	const sourceFiles = new Map<string, string>();
+	const outputPaths = new Map<string, string>();
 	const { appPath, runtimePath } = frameworkFiles[framework];
 	const frameworkPrefix = `${framework}/`;
+	const demoPrefix = `/src/lib/site/demos/${demoId}/`;
+	const addFile = (path: string, source: string, outputPath: string) => {
+		sourceFiles.set(path, source);
+		outputPaths.set(path, `/src/${outputPath}`);
+	};
+
+	for (const [path, source] of Object.entries(sharedFileModules)) {
+		const relativePath = path.slice('/src/lib/site/demo-shared/'.length);
+		if (relativePath === 'README.md') continue;
+		addFile(path, source, `shared/${relativePath}`);
+	}
 
 	for (const [relativePath, source] of Object.entries(files)) {
-		if (relativePath === appPath || relativePath === runtimePath || relativePath === 'README.md') {
+		if (relativePath === 'README.md') {
 			continue;
 		}
 
@@ -92,14 +113,23 @@ const buildVariantAdditionalFiles = (
 				continue;
 			}
 
-			output[frameworkRelativePath] = source;
+			addFile(`${demoPrefix}${relativePath}`, source, frameworkRelativePath);
 			continue;
 		}
 
-		output[relativePath] = source;
+		addFile(`${demoPrefix}${relativePath}`, source, relativePath);
 	}
 
-	return output;
+	const additionalFiles: Record<string, string> = {};
+	let appSource = '';
+	let runtimeSource: string | undefined;
+	for (const [path, source] of sourceFiles) {
+		const relocated = relocateDemoImports(source, path, outputPaths);
+		if (path === `${demoPrefix}${appPath}`) appSource = relocated;
+		else if (path === `${demoPrefix}${runtimePath}`) runtimeSource = relocated;
+		else additionalFiles[outputPaths.get(path)!.slice('/src/'.length)] = relocated;
+	}
+	return { appSource, runtimeSource, additionalFiles };
 };
 
 const missingFrameworkVariants: string[] = [];
@@ -128,11 +158,7 @@ export const playgroundDemos = playgroundPages
 		const variants = Object.fromEntries(
 			(Object.keys(frameworkFiles) as PlaygroundFramework[]).map((framework) => [
 				framework,
-				{
-					appSource: files[frameworkFiles[framework].appPath]!,
-					runtimeSource: files[frameworkFiles[framework].runtimePath],
-					additionalFiles: buildVariantAdditionalFiles(files, framework)
-				}
+				buildVariant(id, files, framework)
 			])
 		) as Record<PlaygroundFramework, PlaygroundDemoVariant>;
 
@@ -152,15 +178,11 @@ if (missingFrameworkVariants.length > 0) {
 	);
 }
 
-if (playgroundDemos.length === 0) {
-	throw new Error('No playground demos found in ./demos/**');
-}
-
 const playgroundDemosById = Object.fromEntries(
 	playgroundDemos.map((demo) => [demo.id, demo])
 ) as Record<string, PlaygroundDemoDefinition>;
 
-const defaultPlaygroundDemoId = playgroundDemos[0]!.id;
+const defaultPlaygroundDemoId = playgroundDemos[0]?.id ?? '';
 
 export const resolvePlaygroundDemoId = (value: string | null | undefined) =>
 	value && value in playgroundDemosById ? value : defaultPlaygroundDemoId;

@@ -1,0 +1,29 @@
+ISS Timelapse: West Coast of the Americas
+
+Video courtesy of the Earth Science and Remote Sensing Unit, NASA Johnson
+Space Center.
+
+Source: https://svs.gsfc.nasa.gov/30180
+Astronaut photography archive: https://eol.jsc.nasa.gov/
+Conditions of use: https://eol.jsc.nasa.gov/FAQ/
+NASA media guidelines:
+https://www.nasa.gov/nasa-brand-center/images-and-media/
+
+The source contains actual photographs taken aboard the International Space
+Station on August 19, 2011, assembled by NASA into a time-lapse. Clouds and
+city lights move through the view as the spacecraft travels above Earth.
+This is camera imagery, not a computer-generated Earth animation.
+
+NASA states that its astronaut photographs and time-lapse videos are not
+protected by copyright unless otherwise noted and may be reproduced and
+distributed with source acknowledgement. No third-party restriction appears
+on this source page. This demo is not endorsed by NASA.
+
+The local asset is an 18-second excerpt, seconds 5 through 23 of the source.
+A native-resolution 4:3 crop was encoded as H.264 at 960 x 720, with no audio.
+Source colors and time-lapse speed are unchanged. No generated frames,
+interpolation, titles, logos, or overlays were added. See sources.json for
+the original URL, exact crop, codec details, and SHA-256 checksums.
+
+This notice describes orbit.mp4 only. Locally authored faceplate artwork in
+this directory is separate from the NASA footage.

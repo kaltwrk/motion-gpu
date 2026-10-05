@@ -54,5 +54,3 @@ Keep shader resolution in a `shader.ts` module and runtime orchestration in the 
 | Browser bundle references `createRequire` | A browser-safe plugin entry is used by the worker bundler |
 | Missing `frag` contract | Resolved function is named `frag` and has the required signature |
 | Unknown `spektralUniforms` field | Matching uniform exists in the material |
-
-Open the complete [TypeGPU Resolve Codegen demo](/playground/typegpu-resolve-codegen?framework=svelte) to inspect generated WGSL and adapter variants.
