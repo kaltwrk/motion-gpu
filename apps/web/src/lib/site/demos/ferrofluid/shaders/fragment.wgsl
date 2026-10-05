@@ -81,40 +81,15 @@ fn surface_normal(p: vec3f, material: u32) -> vec3f {
 	));
 }
 
-// Continuous cone visibility avoids a small fixed set of hard shadow samples.
-// The finite emitter width sets the penumbra; contact remains dense and narrow.
-fn scene_shadow(p: vec3f, normal: vec3f, index: u32) -> f32 {
-	let delta = STUDIO_LIGHTS[index] - p;
-	let distance_to_light = length(delta);
-	let direction = delta / distance_to_light;
-	let origin = p + normal * 0.003;
-	// Include the emitter's penumbra, not just the geometry's primary-ray box.
-	// A center ray can miss the basin while part of a large light is occluded.
-	let bound_offset = origin - vec3f(0.0, 0.35, 0.0);
-	let projection = dot(bound_offset, direction);
-	let discriminant = projection * projection - dot(bound_offset, bound_offset) + 3.2 * 3.2;
-	if (discriminant <= 0.0) { return 1.0; }
-	let root = sqrt(discriminant);
-	let interval = vec2f(-projection - root, -projection + root);
-	if (interval.y <= 0.0) { return 1.0; }
-	var travel = max(0.006, interval.x);
-	var visibility = 1.0;
-	let spread = max(STUDIO_LIGHT_SIZE[index].x, STUDIO_LIGHT_SIZE[index].y) / distance_to_light;
-	for (var step_index = 0u; step_index < 80u; step_index++) {
-		let q = origin + direction * travel;
-		let height_clearance = (q.y - fluid_height(q.xz)) * 0.42;
-		let liquid = max(height_clearance, length(q.xz) - FLUID_RADIUS);
-		let distance = min(tray_distance(q), liquid);
-		if (distance < 0.0002) { return 0.04; }
-		visibility = min(visibility, distance / max(travel * spread, 0.0001));
-		travel += clamp(distance, 0.008, 0.24);
-		if (travel > min(interval.y, distance_to_light)) { break; }
-	}
-	return mix(0.04, 1.0, smoothstep(0.0, 1.0, visibility));
+fn studio_occluder_distance(p: vec3f) -> f32 {
+	// Match the conservative slope bound used by primary rays. The old 0.42
+	// height multiplier could march straight through a narrow magnetic spike.
+	let liquid = max(fluid_distance(p), p.y - (FLUID_LEVEL + 0.732));
+	return min(tray_distance(p), liquid);
 }
 
 fn visibility_at(p: vec3f, normal: vec3f) -> vec3f {
-	return vec3f(scene_shadow(p, normal, 0u), scene_shadow(p, normal, 1u), scene_shadow(p, normal, 2u));
+	return studio_visibility(p, normal);
 }
 
 fn liquid_occlusion(p: vec3f) -> f32 {

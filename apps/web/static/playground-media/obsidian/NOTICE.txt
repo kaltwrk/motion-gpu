@@ -1,0 +1,19 @@
+Obsidian 001 by Katsukagi
+
+Source: https://3dtextures.me/2019/09/12/obsidian-001/
+License: CC0 1.0 Universal
+License statement: https://3dtextures.me/about/
+License text: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+This matching PBR set contains base color, normal, roughness, height, and
+ambient occlusion maps at the original free 1024 x 1024 resolution. The
+artist created the material in Substance Designer. These are external
+author-authored textures, not a photogrammetry scan or AI-generated maps.
+
+Files were renamed for the demo without modifying their bytes. The source
+height map is a 16-bit PNG; the remaining source maps are JPEGs. Albedo is
+sRGB; normal, roughness, height, and AO are linear data. Normal orientation
+is OpenGL (+Y), checked against the height map.
+
+The author explicitly permits redistribution, including in shared projects.
+See sources.json for original filenames, direct URLs, and SHA-256 hashes.

@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { posix } from 'node:path';
 
 vi.mock('./playground-pages', () => ({
-	getPlaygroundPages: () => [{ id: 'ferrofluid', title: 'Ferrofluid', slug: 'ferrofluid' }]
+	getPlaygroundPages: () =>
+		Object.keys(import.meta.glob('/src/lib/site/demos/*/svelte/App.svelte')).map((path) => {
+			const id = path.split('/').at(-3)!;
+			return { id, title: id, slug: id };
+		})
 }));
 
 import { getPlaygroundDemoVariant } from './playground-demos';

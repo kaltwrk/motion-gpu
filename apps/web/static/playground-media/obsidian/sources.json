@@ -1,0 +1,60 @@
+{
+	"title": "Obsidian 001",
+	"author": "Katsukagi",
+	"source": "https://3dtextures.me/2019/09/12/obsidian-001/",
+	"downloadFolder": "https://drive.google.com/drive/folders/1wKionCfGTYp72GEENoIIA6fRIiOtxRWd",
+	"license": "CC0-1.0",
+	"licenseStatement": "https://3dtextures.me/about/",
+	"licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+	"downloadedAt": "2026-10-05",
+	"resolution": [1024, 1024],
+	"modifications": "Files renamed for the demo only. Original bytes retained; no conversion or upscaling.",
+	"normalConvention": "OpenGL (+Y). Inferred by comparison to source height gradients: correlation of red with -dH/dx = 0.983, green with dH/d(image-row) = 0.987.",
+	"maps": [
+		{
+			"file": "albedo.jpg",
+			"originalFilename": "Obsidian_001_basecolor.jpg",
+			"alias": "uAlbedo",
+			"colorSpace": "sRGB",
+			"url": "https://drive.google.com/uc?export=download&id=14RSZBl2o6q5fAA1zULrLq0BQAJ7ERMv9",
+			"sha256": "65416aaf7189b636186b62eeae9510006550e6ce056266433f8e95622e1120d4",
+			"bytes": 10909
+		},
+		{
+			"file": "normal.jpg",
+			"originalFilename": "Obsidian_001_normal.jpg",
+			"alias": "uNormal",
+			"colorSpace": "linear",
+			"url": "https://drive.google.com/uc?export=download&id=1x5zaep3TR5TBntQJmuufc73B5juy_YI8",
+			"sha256": "2f8df1f1ce5c05875ba8592d20df0aabbff1449166455d98e76dc6a929887607",
+			"bytes": 102833
+		},
+		{
+			"file": "roughness.jpg",
+			"originalFilename": "Obsidian_001_roughness.jpg",
+			"alias": "uRoughness",
+			"colorSpace": "linear",
+			"url": "https://drive.google.com/uc?export=download&id=1I4WTaYjRu2cnHmUQS_REbORraqjRvygu",
+			"sha256": "fce983c92a2a09d7e7de40c62bd165960614f4430f176dbb1da2e02e9a2e619d",
+			"bytes": 39234
+		},
+		{
+			"file": "height.png",
+			"originalFilename": "Obsidian_001_height.png",
+			"alias": "uHeight",
+			"colorSpace": "linear",
+			"url": "https://drive.google.com/uc?export=download&id=1yr4XvhvWlMDKhmD4kNY-RDcqH60LLJMx",
+			"sha256": "82074d9ce8a4315cc1ea13b7484a2c2a81226c43e0c12c3c1d82556687acfb74",
+			"bytes": 1429700
+		},
+		{
+			"file": "ao.jpg",
+			"originalFilename": "Obsidian_001_ambientOcclusion.jpg",
+			"alias": "uAO",
+			"colorSpace": "linear",
+			"url": "https://drive.google.com/uc?export=download&id=1C9bZcsBSN3Cv8Ul6EZWHM5yT02x4Cbw5",
+			"sha256": "a645adac5f8e31ddbc7b63e958f08ae1916fa75418fc2ca08580d58ced4a8f80",
+			"bytes": 29158
+		}
+	]
+}

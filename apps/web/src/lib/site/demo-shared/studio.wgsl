@@ -16,6 +16,57 @@ const STUDIO_RADIANCE = array<vec3f, 3>(
 	vec3f(2.7, 2.60, 2.45)
 );
 
+// A demo supplies studio_occluder_distance(p): a conservative signed distance
+// to its object, excluding the receiving floor. The shared light geometry sets
+// shadow softness, so objects in different demos sit in the same studio.
+fn studio_shadow(p: vec3f, normal: vec3f, index: u32) -> f32 {
+	let offset = p + normal * 0.0015;
+	let to_light = STUDIO_LIGHTS[index] - offset;
+	let light_distance = length(to_light);
+	let direction = to_light / light_distance;
+	let light_normal = normalize(vec3f(0.0, 0.18, 0.0) - STUDIO_LIGHTS[index]);
+	let projected_area = 4.0 * STUDIO_LIGHT_SIZE[index].x * STUDIO_LIGHT_SIZE[index].y
+		* abs(dot(light_normal, direction));
+	// The equivalent-area disk preserves the projected area of a finite
+	// softbox. Using the longest side made thin strips cast excessively wide cones.
+	let angular_radius = sqrt(projected_area / STUDIO_PI) / light_distance;
+	var travel = 0.003;
+	var visibility = 1.0;
+	var previous_travel = travel;
+	var closest_interval = vec2f(travel);
+	for (var step_index = 0u; step_index < 112u; step_index++) {
+		let distance = studio_occluder_distance(offset + direction * travel);
+		if (distance < 0.00015) { return 0.0; }
+		let step_size = min(distance, 0.32);
+		let angular_clearance = distance / max(travel * angular_radius, 0.0001);
+		if (angular_clearance < visibility) {
+			visibility = angular_clearance;
+			closest_interval = vec2f(previous_travel, min(travel + step_size, light_distance));
+		}
+		previous_travel = travel;
+		travel += step_size;
+		if (travel >= light_distance || visibility < 0.001) { break; }
+	}
+	// Refine the angular clearance between the closest march samples. This
+	// remains valid for conservative, piecewise planar fields: fitting a tangent
+	// between their empty spheres can invent dark contours at plane boundaries.
+	if (visibility < 1.0 && visibility > 0.001) {
+		for (var refinement = 0u; refinement < 14u; refinement++) {
+			let first = mix(closest_interval.x, closest_interval.y, 1.0 / 3.0);
+			let second = mix(closest_interval.x, closest_interval.y, 2.0 / 3.0);
+			let a = studio_occluder_distance(offset + direction * first) / max(first * angular_radius, 0.0001);
+			let b = studio_occluder_distance(offset + direction * second) / max(second * angular_radius, 0.0001);
+			visibility = min(visibility, min(a, b));
+			if (a < b) { closest_interval.y = second; } else { closest_interval.x = first; }
+		}
+	}
+	return smoothstep(0.0, 1.0, visibility);
+}
+
+fn studio_visibility(p: vec3f, normal: vec3f) -> vec3f {
+	return vec3f(studio_shadow(p, normal, 0u), studio_shadow(p, normal, 1u), studio_shadow(p, normal, 2u));
+}
+
 struct StudioRay {
 	origin: vec3f,
 	direction: vec3f,
