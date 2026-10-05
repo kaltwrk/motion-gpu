@@ -1,0 +1,66 @@
+{
+	"title": "ISS Timelapse: West Coast of the Americas",
+	"asset": "orbit.mp4",
+	"sourcePage": "https://svs.gsfc.nasa.gov/30180",
+	"sourceUrl": "https://svs.gsfc.nasa.gov/vis/a030000/a030100/a030180/iss028_nighttime_20110819_720p.mp4",
+	"originalFilename": "iss028_nighttime_20110819_720p.mp4",
+	"credit": "Video courtesy of the Earth Science and Remote Sensing Unit, NASA Johnson Space Center.",
+	"observation": "Actual astronaut photography captured from the International Space Station, Expedition28, assembled by NASA as a time-lapse.",
+	"observationDate": "2011-08-19",
+	"sourceReleasedAt": "2013-10-17",
+	"retrievedAt": "2026-10-05",
+	"permission": {
+		"url": "https://eol.jsc.nasa.gov/FAQ/",
+		"additionalGuidelines": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+		"basis": "NASA states that these astronaut photographs and time-lapse videos are not protected by copyright unless otherwise noted and may be reproduced and distributed with source acknowledgement and no implied NASA endorsement.",
+		"sourceRestrictionCheck": "The source page contains no third-party copyright restriction. No music, narration, titles, logos, or identifiable people are present in this excerpt."
+	},
+	"derivation": {
+		"sourceWindowSeconds": [5, 23],
+		"cropPixels": {
+			"x": 96,
+			"y": 0,
+			"width": 960,
+			"height": 720
+		},
+		"notes": "Native-resolution 4:3 crop re-encoded as H.264. Source colors and time-lapse speed retained, with no generated or interpolated frames and no audio.",
+		"ffmpegArguments": [
+			"-ss",
+			"5",
+			"-i",
+			"SOURCE.mp4",
+			"-t",
+			"18",
+			"-vf",
+			"crop=960:720:96:0,setsar=1",
+			"-an",
+			"-c:v",
+			"libx264",
+			"-preset",
+			"slow",
+			"-crf",
+			"23",
+			"-pix_fmt",
+			"yuv420p",
+			"-profile:v",
+			"high",
+			"-level:v",
+			"4.0",
+			"-movflags",
+			"+faststart",
+			"orbit.mp4"
+		]
+	},
+	"originalSha256": "3697433659d6f571b3367a2f3945ce23dc441fb1004becd9bd90a9e438d507c6",
+	"sha256": "abc96611bf28c8b3ed215546693a3789a798875f8fa3ca7d63c63ec9d6828673",
+	"bytes": 3392769,
+	"durationSeconds": 18.0,
+	"stream": {
+		"codec_name": "h264",
+		"profile": "High",
+		"width": 960,
+		"height": 720,
+		"pix_fmt": "yuv420p",
+		"r_frame_rate": "30/1"
+	}
+}
