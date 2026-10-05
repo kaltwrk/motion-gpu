@@ -107,14 +107,6 @@ Consecutive compute passes form a dependency graph. Descriptors provide the read
 
 All dispatches are encoded in topological order on one command encoder. No CPU wait or intermediate readback is required.
 
-## Interactive examples
-
-Use the playground to run and edit the complete examples in Svelte, React, or Vue:
-
-- [Data Mosh](/playground/data-mosh?framework=svelte) streams real video into GPU motion estimation and temporal feedback passes to produce data moshing without CPU readback.
-
-Each example exposes its application, runtime, and WGSL files in the editor. Switch frameworks in the top-right corner of the preview without changing the resource contract.
-
 ## Borrowed WebGPU resources
 
 Advanced integrations may replace a material key with a typed external reference:
@@ -146,4 +138,4 @@ Compute and fragment-feedback passes are pre-scene. Render passes remain post-sc
 
 Compilation failures use `COMPUTE_COMPILATION_FAILED` with source mapping. Descriptor, graph, and external-resource failures have separate stable codes listed in [Error Handling](/docs/error-handling).
 
-The [Particle Icosahedron demo](/playground/particle-icosahedron?framework=svelte) shows a storage-texture writer; the [Rubik's Cube demo](/playground/rubiks-cube?framework=svelte) uses explicit storage-buffer access; the [TanStack demo](/playground/tanstack?framework=svelte) composes independent compute producers. See [Storage Buffers](/docs/storage-buffers), [Textures](/docs/textures#storage-textures), and [Passes API](/docs/api-passes-reference).
+See [Storage Buffers](/docs/storage-buffers), [Textures](/docs/textures#storage-textures), and [Passes API](/docs/api-passes-reference).

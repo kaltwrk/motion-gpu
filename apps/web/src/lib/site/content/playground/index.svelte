@@ -1,12 +1,9 @@
 <script module lang="ts">
 	import type { ContentFrontmatter } from '$lib/content/types';
 	export const metadata = {
-		title: 'Spektral Logo',
-		description: 'Edit the Spektral Logo example in Svelte, React, or Vue and preview it live.',
+		title: 'Playground',
+		description: 'Write and preview Spektral scenes in Svelte, React, or Vue.',
 		order: 0,
-		data: {
-			demo: 'spektral-logo'
-		},
 		view: {
 			label: 'Playground',
 			icon: 'TerminalIcon',
@@ -31,4 +28,4 @@
 	import PlaygroundPage from '$lib/features/playground/PlaygroundPage.svelte';
 </script>
 
-<PlaygroundPage demoId={metadata.data.demo} title={metadata.title} />
+<PlaygroundPage demoId="" title={metadata.title} />

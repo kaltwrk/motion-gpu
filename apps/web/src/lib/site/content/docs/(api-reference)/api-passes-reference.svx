@@ -203,4 +203,4 @@ labeling rule for built-in and custom passes.
 
 `frag` and its helper functions can read the ping-pong target coordinates from `spektralFragment.uv`. They use the pass target dimensions and the same public Y-up orientation as the `uv` parameter.
 
-See [Render Passes](/docs/render-passes), [Compute Shaders](/docs/compute-shaders), and the [Ping-pong Fluid demo](/playground/ping-pong-fluid?framework=svelte).
+See [Render Passes](/docs/render-passes) and [Compute Shaders](/docs/compute-shaders).

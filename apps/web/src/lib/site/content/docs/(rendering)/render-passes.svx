@@ -93,4 +93,4 @@ passes are managed by Spektral because the renderer owns their resource and text
 Objects with only `isCompute: true` or `isPingPongShader: true` are rejected. Use `ComputePass`,
 `PingPongComputePass`, or `PingPongShaderPass` instead.
 
-Explore complete pipelines in the [TanStack playground demo](/playground/tanstack?framework=svelte). See [Render Targets](/docs/render-targets), [Compute Shaders](/docs/compute-shaders), and [Passes API](/docs/api-passes-reference).
+See [Render Targets](/docs/render-targets), [Compute Shaders](/docs/compute-shaders), and [Passes API](/docs/api-passes-reference).
