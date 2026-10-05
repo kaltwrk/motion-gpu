@@ -1,0 +1,83 @@
+{
+	"asset": "Smoked Walnut Veneer",
+	"author": "Jenelle van Heerden",
+	"provider": "Poly Haven",
+	"source": "https://polyhaven.com/a/smoked_walnut_veneer",
+	"license": "CC0-1.0",
+	"license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+	"provider_license_url": "https://polyhaven.com/license",
+	"retrieved": "2026-10-05",
+	"source_dimensions_mm": [1000, 1000],
+	"processing": "Unmodified original 1K JPEG downloads, renamed only.",
+	"files": [
+		{
+			"file": "wood-albedo.jpg",
+			"role": "base color",
+			"color_space": "srgb",
+			"dimensions": [1024, 1024],
+			"source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/smoked_walnut_veneer/smoked_walnut_veneer_diff_1k.jpg",
+			"original_filename": "smoked_walnut_veneer_diff_1k.jpg",
+			"bytes": 534484,
+			"sha256": "711773a3f4eb37a5abf073e150b5f570f49b46a8b6f506781b22d54cdf8793c0",
+			"source_md5": "8a89a2a623c61af870f1b1c5d2a877b3"
+		},
+		{
+			"file": "wood-normal.jpg",
+			"role": "OpenGL tangent-space normal (+Y)",
+			"color_space": "linear",
+			"dimensions": [1024, 1024],
+			"source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/smoked_walnut_veneer/smoked_walnut_veneer_nor_gl_1k.jpg",
+			"original_filename": "smoked_walnut_veneer_nor_gl_1k.jpg",
+			"bytes": 366348,
+			"sha256": "e1aea3ac8d2d78170025fc24e1a594115dfb184f148ea1b4edf0d05a59dc331a",
+			"source_md5": "3aebd0371e68690a44b608c98b9e052a"
+		},
+		{
+			"file": "wood-roughness.jpg",
+			"role": "perceptual roughness",
+			"color_space": "linear",
+			"dimensions": [1024, 1024],
+			"source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/smoked_walnut_veneer/smoked_walnut_veneer_rough_1k.jpg",
+			"original_filename": "smoked_walnut_veneer_rough_1k.jpg",
+			"bytes": 408443,
+			"sha256": "a83e636322d1e71cbe530a70b7f194533bd02d7ee357e685db99a9019bfcc6a4",
+			"source_md5": "cfcb3f188b2b231996795bd19fb8d03a"
+		}
+	],
+	"authored_assets": [
+		{
+			"files": ["stamp.svg", "stamp.png"],
+			"title": "Fictional glass inspection stamp",
+			"author": "Original artwork created for Spektral",
+			"license": "MIT",
+			"license_path": "../../../../../LICENSE",
+			"created": "2026-10-05",
+			"external_sources": [],
+			"content": "Diamond S with 74 / 06 marking; custom outlined glyphs and static print wear.",
+			"png": {
+				"dimensions": [512, 256],
+				"mode": "grayscale",
+				"color_space": "linear",
+				"channel": "R",
+				"white": "ink coverage",
+				"black": "unprinted glass",
+				"bytes": 5482,
+				"sha256": "50ff8898f529e3fd3f50d7907d1ea552d8ce7dc0d68b00ae35305e8363055d3e"
+			},
+			"svg_sha256": "a17f5835ddfb6c38d54a039599aaf475cc6040310d5b1bf88baa411714091c7e"
+		},
+		{
+			"files": ["cathodes.svg", "cathodes.png"],
+			"title": "Original wire cathode distance atlas",
+			"author": "Original artwork created for Spektral",
+			"license": "MIT",
+			"external_sources": [],
+			"layout": "Five columns, two rows, digits 0 through 9; each cell 256 x 512.",
+			"encoding": "Unsigned distance from an original stroked curve in metres, normalized by 0.04; linear R. Cell spans 0.30 x 0.68 metres.",
+			"sha256": {
+				"cathodes.svg": "105ee699b369407f8525107cbad917f2326ce9b02912d2335406414958e5d029",
+				"cathodes.png": "bb3fe805797fdda043d5888994f8b25e9a51e36dd48318829f612e2d68bfe558"
+			}
+		}
+	]
+}

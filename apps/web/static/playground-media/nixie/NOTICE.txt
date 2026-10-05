@@ -1,0 +1,39 @@
+Nixie wood material
+
+Smoked Walnut Veneer
+Author: Jenelle van Heerden
+Provider: Poly Haven
+Source: https://polyhaven.com/a/smoked_walnut_veneer
+License: CC0 1.0 Universal (CC0-1.0)
+License URL: https://creativecommons.org/publicdomain/zero/1.0/
+Provider license statement: https://polyhaven.com/license
+Retrieved: 2026-10-05
+
+Files are the original 1024 x 1024 JPEG maps, renamed only:
+- wood-albedo.jpg: smoked_walnut_veneer_diff_1k.jpg (sRGB)
+- wood-normal.jpg: smoked_walnut_veneer_nor_gl_1k.jpg (linear, OpenGL +Y)
+- wood-roughness.jpg: smoked_walnut_veneer_rough_1k.jpg (linear)
+
+This is a continuous walnut surface without board joints. The source is a
+veneer scan; it supplies surface grain for the clock's solid wooden base.
+A source tile covers 1 x 1 metre. Grain runs horizontally in the maps.
+Any dark stain or finish adjustment is applied by the shader, not baked
+into these source maps.
+
+Direct download URLs and checksums are recorded in sources.json.
+
+Original glass marking
+
+stamp.svg and stamp.png are original artwork created for Spektral.
+The fictional diamond S and 74 / 06 date marking do not reproduce a
+historical manufacturer's trademark. The PNG is an antialiased linear
+grayscale coverage mask: white is ink, black is unprinted glass. Sparse
+static pinholes are authored in the SVG. No font or external artwork is used.
+The original artwork is provided under the repository's MIT license.
+
+Original cathodes
+
+cathodes.svg and cathodes.png contain ten original curved wire drawings,
+not glyphs taken from a font. The SVG records the paths; the PNG stores
+linear unsigned distance to each path, for analytic wire and gas shading.
+The original artwork is provided under the repository MIT license.
