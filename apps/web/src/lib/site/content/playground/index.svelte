@@ -4,6 +4,7 @@
 		title: 'Playground',
 		description: 'Write and preview Spektral scenes in Svelte, React, or Vue.',
 		order: 0,
+		sidebar: { hidden: true },
 		view: {
 			label: 'Playground',
 			icon: 'TerminalIcon',
